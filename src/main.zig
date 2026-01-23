@@ -10,8 +10,115 @@ const TARGET_FPS = 60;
 const FRAME_TIME_MS: u32 = 1000 / TARGET_FPS;
 const FPS_UPDATE_INTERVAL_MS: u32 = 500;
 
-/// Renders text at the specified position. Returns the width and height of the rendered text,
-/// or null if rendering failed.
+/// Cached text texture with metadata for scaled rendering.
+const TextCache = struct {
+    texture: ?*c.SDL_Texture = null,
+    rendered_font_size: f32 = 0,
+    native_w: i32 = 0,
+    native_h: i32 = 0,
+
+    const UPSCALE_TOLERANCE: f32 = 1.1; // Allow 10% upscale before re-rasterizing
+    const MAX_FONT_SIZE: f32 = 128.0; // Don't rasterize larger than this
+    const MIN_FONT_SIZE: f32 = 6.0; // Don't rasterize smaller than this
+
+    /// Free the cached texture.
+    fn deinit(self: *TextCache) void {
+        if (self.texture) |tex| {
+            c.SDL_DestroyTexture(tex);
+            self.texture = null;
+        }
+    }
+
+    /// Check if we need to re-rasterize for the given target font size.
+    fn needsRasterize(self: *const TextCache, target_font_size: f32) bool {
+        if (self.texture == null) return true;
+        // Re-rasterize if target exceeds cached size by more than tolerance
+        return target_font_size > self.rendered_font_size * UPSCALE_TOLERANCE;
+    }
+
+    /// Rasterize text at the specified font size and cache the texture.
+    fn rasterize(
+        self: *TextCache,
+        renderer: *c.SDL_Renderer,
+        font: *c.TTF_Font,
+        text: [*:0]const u8,
+        font_size: f32,
+        color: c.SDL_Color,
+    ) bool {
+        // Free old texture
+        self.deinit();
+
+        // Clamp font size to reasonable bounds
+        const clamped_size = std.math.clamp(font_size, MIN_FONT_SIZE, MAX_FONT_SIZE);
+        const int_size: c_int = @intFromFloat(clamped_size);
+
+        // Set font size (SDL_ttf 2.20+)
+        if (c.TTF_SetFontSize(font, int_size) != 0) {
+            return false;
+        }
+
+        // Render text to surface
+        const surface = c.TTF_RenderText_Blended(font, text, color) orelse return false;
+        defer c.SDL_FreeSurface(surface);
+
+        // Create texture from surface
+        self.texture = c.SDL_CreateTextureFromSurface(renderer, surface) orelse return false;
+        self.rendered_font_size = clamped_size;
+        self.native_w = surface.*.w;
+        self.native_h = surface.*.h;
+
+        return true;
+    }
+
+    /// Draw the cached text at the specified position and target size.
+    /// Re-rasterizes if necessary. Returns the displayed dimensions.
+    fn draw(
+        self: *TextCache,
+        renderer: *c.SDL_Renderer,
+        font: *c.TTF_Font,
+        text: [*:0]const u8,
+        x: i32,
+        y: i32,
+        target_font_size: f32,
+        color: c.SDL_Color,
+    ) ?struct { w: i32, h: i32 } {
+        // Re-rasterize if needed
+        if (self.needsRasterize(target_font_size)) {
+            if (!self.rasterize(renderer, font, text, target_font_size, color)) {
+                return null;
+            }
+        }
+
+        const tex = self.texture orelse return null;
+
+        // Calculate scale factor (will be <= 1.1, usually <= 1.0)
+        const scale = target_font_size / self.rendered_font_size;
+        const display_w: i32 = @intFromFloat(@as(f32, @floatFromInt(self.native_w)) * scale);
+        const display_h: i32 = @intFromFloat(@as(f32, @floatFromInt(self.native_h)) * scale);
+
+        var dst_rect = c.SDL_Rect{
+            .x = x,
+            .y = y,
+            .w = display_w,
+            .h = display_h,
+        };
+        _ = c.SDL_RenderCopy(renderer, tex, null, &dst_rect);
+
+        return .{ .w = display_w, .h = display_h };
+    }
+
+    /// Get the display dimensions for a given target font size without drawing.
+    fn getDisplaySize(self: *const TextCache, target_font_size: f32) ?struct { w: i32, h: i32 } {
+        if (self.texture == null) return null;
+        const scale = target_font_size / self.rendered_font_size;
+        return .{
+            .w = @intFromFloat(@as(f32, @floatFromInt(self.native_w)) * scale),
+            .h = @intFromFloat(@as(f32, @floatFromInt(self.native_h)) * scale),
+        };
+    }
+};
+
+/// Renders text at the specified position (non-cached, for dynamic text like FPS).
 fn drawText(
     renderer: *c.SDL_Renderer,
     font: *c.TTF_Font,
@@ -77,7 +184,10 @@ pub fn main() !void {
     };
     defer c.SDL_DestroyRenderer(renderer);
 
-    // Load font
+    // Enable linear filtering for better scaled text quality
+    _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "1");
+
+    // Load font (initial size doesn't matter much, we'll resize as needed)
     const font = c.TTF_OpenFont("assets/fonts/JetBrainsMono-Regular.ttf", 16) orelse {
         std.debug.print("Font loading failed: {s}\n", .{c.TTF_GetError()});
         return error.FontLoadFailed;
@@ -93,7 +203,18 @@ pub fn main() !void {
     var frame_count: u32 = 0;
     var fps_timer: u32 = c.SDL_GetTicks();
     var current_fps: f32 = 0;
-    var fps_text_buf: [32]u8 = undefined;
+    var fps_text_buf: [64]u8 = undefined;
+
+    // Zoom state
+    var zoom: f32 = 1.0;
+    const base_font_size: f32 = 16.0;
+    const zoom_speed: f32 = 0.1;
+    const min_zoom: f32 = 0.25;
+    const max_zoom: f32 = 4.0;
+
+    // Text cache for the repeated line
+    var line_cache = TextCache{};
+    defer line_cache.deinit();
 
     while (running) {
         const frame_start = c.SDL_GetTicks();
@@ -105,6 +226,21 @@ pub fn main() !void {
                 c.SDL_KEYDOWN => {
                     if (event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE) {
                         running = false;
+                    } else if (event.key.keysym.scancode == c.SDL_SCANCODE_EQUALS or
+                        event.key.keysym.scancode == c.SDL_SCANCODE_KP_PLUS)
+                    {
+                        zoom = @min(zoom + zoom_speed, max_zoom);
+                    } else if (event.key.keysym.scancode == c.SDL_SCANCODE_MINUS or
+                        event.key.keysym.scancode == c.SDL_SCANCODE_KP_MINUS)
+                    {
+                        zoom = @max(zoom - zoom_speed, min_zoom);
+                    }
+                },
+                c.SDL_MOUSEWHEEL => {
+                    if (event.wheel.y > 0) {
+                        zoom = @min(zoom + zoom_speed, max_zoom);
+                    } else if (event.wheel.y < 0) {
+                        zoom = @max(zoom - zoom_speed, min_zoom);
                     }
                 },
                 else => {},
@@ -124,20 +260,25 @@ pub fn main() !void {
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         _ = c.SDL_RenderClear(renderer);
 
-        // Render centered text lines from top to bottom
+        // Calculate current font size based on zoom
+        const current_font_size = base_font_size * zoom;
+        const line_spacing: i32 = @intFromFloat(4.0 * zoom);
+
+        // Render centered text lines from top to bottom using cached texture
         const line_text = "This is a line of text.";
-        var line_w: c_int = 0;
-        var line_h: c_int = 0;
-        _ = c.TTF_SizeText(font, line_text, &line_w, &line_h);
-        const line_spacing: i32 = 4;
-        const line_x = @divTrunc(WINDOW_WIDTH - line_w, 2);
-        var y: i32 = 0;
-        while (y < WINDOW_HEIGHT) : (y += line_h + line_spacing) {
-            _ = drawText(renderer, font, line_text, line_x, y, white);
+
+        // First draw to get/update cache and get dimensions
+        if (line_cache.draw(renderer, font, line_text, 0, -1000, current_font_size, white)) |dims| {
+            const line_x = @divTrunc(WINDOW_WIDTH - dims.w, 2);
+            var y: i32 = 0;
+            while (y < WINDOW_HEIGHT) : (y += dims.h + line_spacing) {
+                _ = line_cache.draw(renderer, font, line_text, line_x, y, current_font_size, white);
+            }
         }
 
-        // Render FPS text (right-aligned)
-        const fps_text = std.fmt.bufPrintZ(&fps_text_buf, "FPS: {d:.1}", .{current_fps}) catch "FPS: ---";
+        // Render FPS and zoom info (at fixed size, not cached)
+        _ = c.TTF_SetFontSize(font, 16);
+        const fps_text = std.fmt.bufPrintZ(&fps_text_buf, "FPS: {d:.1} | Zoom: {d:.0}% | Font: {d:.1}px", .{ current_fps, zoom * 100, current_font_size }) catch "FPS: ---";
         var text_w: c_int = 0;
         _ = c.TTF_SizeText(font, fps_text.ptr, &text_w, null);
         _ = drawText(renderer, font, fps_text.ptr, WINDOW_WIDTH - text_w - 10, 10, white);

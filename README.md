@@ -1,6 +1,6 @@
 # zig_sdl_gui
 
-A Zig application using SDL2 to render a double-buffered window at 60fps with FPS counter display.
+A Zig application using SDL2 and SDL2_ttf to render zoomable text with intelligent texture caching.
 
 ## Prerequisites
 
@@ -71,7 +71,26 @@ The executable will be in `zig-out\bin\`. Required DLLs are automatically copied
 
 ## Controls
 
-Press Escape or close the window to quit.
+| Input | Action |
+|-------|--------|
+| Mouse wheel | Zoom in/out |
+| `+` / `-` | Zoom in/out |
+| `Escape` | Quit |
+
+Zoom range: 25% to 400%
+
+## Features
+
+**Text Rendering with Caching**
+
+The application demonstrates efficient text rendering at different zoom levels:
+
+- Text is rasterized to a texture and cached
+- Zooming out scales the cached texture down (fast, good quality)
+- Zooming in re-rasterizes when the target size exceeds 110% of the cached size
+- This avoids pixelation from upscaling while minimizing expensive font rasterization
+
+The status bar shows current FPS, zoom level, and effective font size in pixels.
 
 ## Display Setup (WSL only)
 
