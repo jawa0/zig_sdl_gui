@@ -97,9 +97,9 @@ pub fn main() !void {
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         _ = c.SDL_RenderClear(renderer);
 
-        // Render FPS text
+        // Render FPS text (Blended mode for anti-aliased text)
         const fps_text = std.fmt.bufPrintZ(&fps_text_buf, "FPS: {d:.1}", .{current_fps}) catch "FPS: ---";
-        const surface = c.TTF_RenderText_Solid(font, fps_text.ptr, white);
+        const surface = c.TTF_RenderText_Blended(font, fps_text.ptr, white);
         if (surface) |surf| {
             defer c.SDL_FreeSurface(surf);
             const texture = c.SDL_CreateTextureFromSurface(renderer, surf);
