@@ -25,6 +25,8 @@ sudo apt install libsdl2-dev
 
 ## Building
 
+Ensure Zig is in your PATH (if you followed the installation above, restart your terminal or run `source ~/.bashrc`).
+
 When building from the Windows filesystem (`/mnt/c/...`), set the cache directory to avoid permission issues:
 
 ```bash
