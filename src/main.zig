@@ -3,8 +3,8 @@ const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
-const WINDOW_WIDTH = 1600;
-const WINDOW_HEIGHT = 1000;
+const WINDOW_WIDTH = 1400;
+const WINDOW_HEIGHT = 900;
 const TARGET_FPS = 60;
 const FRAME_TIME_MS: u32 = 1000 / TARGET_FPS;
 
