@@ -23,28 +23,22 @@ sudo apt update
 sudo apt install libsdl2-dev
 ```
 
-## Building
+## Building and Running
 
 Ensure Zig is in your PATH (if you followed the installation above, restart your terminal or run `source ~/.bashrc`).
 
-When building from the Windows filesystem (`/mnt/c/...`), set the cache directory to avoid permission issues:
+From the `zig_sdl_gui` directory:
 
 ```bash
-export ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache
-zig build
+ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build run
 ```
+
+The cache variable is needed when building from the Windows filesystem (`/mnt/c/...`) to avoid permission issues.
 
 For a release build:
 
 ```bash
-zig build -Doptimize=ReleaseFast
-```
-
-## Running
-
-```bash
-export ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache
-zig build run
+ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build -Doptimize=ReleaseFast
 ```
 
 Press Escape or close the window to quit.
