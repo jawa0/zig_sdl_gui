@@ -10,6 +10,33 @@ const TARGET_FPS = 60;
 const FRAME_TIME_MS: u32 = 1000 / TARGET_FPS;
 const FPS_UPDATE_INTERVAL_MS: u32 = 500;
 
+/// Renders text at the specified position. Returns the width and height of the rendered text,
+/// or null if rendering failed.
+fn drawText(
+    renderer: *c.SDL_Renderer,
+    font: *c.TTF_Font,
+    text: [*:0]const u8,
+    x: i32,
+    y: i32,
+    color: c.SDL_Color,
+) ?struct { w: i32, h: i32 } {
+    const surface = c.TTF_RenderText_Blended(font, text, color) orelse return null;
+    defer c.SDL_FreeSurface(surface);
+
+    const texture = c.SDL_CreateTextureFromSurface(renderer, surface) orelse return null;
+    defer c.SDL_DestroyTexture(texture);
+
+    var dst_rect = c.SDL_Rect{
+        .x = x,
+        .y = y,
+        .w = surface.*.w,
+        .h = surface.*.h,
+    };
+    _ = c.SDL_RenderCopy(renderer, texture, null, &dst_rect);
+
+    return .{ .w = surface.*.w, .h = surface.*.h };
+}
+
 pub fn main() !void {
     // Initialize SDL
     if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) {
@@ -97,23 +124,11 @@ pub fn main() !void {
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         _ = c.SDL_RenderClear(renderer);
 
-        // Render FPS text (Blended mode for anti-aliased text)
+        // Render FPS text (right-aligned)
         const fps_text = std.fmt.bufPrintZ(&fps_text_buf, "FPS: {d:.1}", .{current_fps}) catch "FPS: ---";
-        const surface = c.TTF_RenderText_Blended(font, fps_text.ptr, white);
-        if (surface) |surf| {
-            defer c.SDL_FreeSurface(surf);
-            const texture = c.SDL_CreateTextureFromSurface(renderer, surf);
-            if (texture) |tex| {
-                defer c.SDL_DestroyTexture(tex);
-                var dst_rect = c.SDL_Rect{
-                    .x = WINDOW_WIDTH - surf.*.w - 10,
-                    .y = 10,
-                    .w = surf.*.w,
-                    .h = surf.*.h,
-                };
-                _ = c.SDL_RenderCopy(renderer, tex, null, &dst_rect);
-            }
-        }
+        var text_w: c_int = 0;
+        _ = c.TTF_SizeText(font, fps_text.ptr, &text_w, null);
+        _ = drawText(renderer, font, fps_text.ptr, WINDOW_WIDTH - text_w - 10, 10, white);
 
         // Present the frame (swap buffers)
         c.SDL_RenderPresent(renderer);
