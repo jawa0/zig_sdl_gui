@@ -1,6 +1,6 @@
 # zig_sdl_gui
 
-A Zig application using SDL2 to render a double-buffered window at 60fps.
+A Zig application using SDL2 to render a double-buffered window at 60fps with FPS counter display.
 
 ## Prerequisites
 
@@ -18,11 +18,11 @@ source ~/.bashrc
 rm zig-x86_64-linux-0.15.2.tar.xz
 ```
 
-#### Install SDL2
+#### Install SDL2 and SDL2_ttf
 
 ```bash
 sudo apt update
-sudo apt install libsdl2-dev
+sudo apt install libsdl2-dev libsdl2-ttf-dev
 ```
 
 ### Option B: Native Windows
@@ -33,7 +33,7 @@ sudo apt install libsdl2-dev
 2. Extract to a directory (e.g., `C:\zig`)
 3. Add to PATH: Settings > System > About > Advanced system settings > Environment Variables > Edit PATH
 
-SDL2 libraries are already bundled in `libs/SDL2/`.
+SDL2 and SDL2_ttf libraries are already bundled in `libs/`.
 
 ## Building and Running
 
@@ -67,7 +67,7 @@ For a release build:
 zig build -Doptimize=ReleaseFast
 ```
 
-The executable will be in `zig-out\bin\`. SDL2.dll is automatically copied there during build.
+The executable will be in `zig-out\bin\`. Required DLLs are automatically copied there during build.
 
 ## Controls
 

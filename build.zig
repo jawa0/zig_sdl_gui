@@ -18,15 +18,24 @@ pub fn build(b: *std.Build) void {
     if (is_windows) {
         // Windows: use bundled SDL2 libraries
         exe.addIncludePath(b.path("libs/SDL2/include"));
+        exe.addIncludePath(b.path("libs/SDL2/include/SDL2")); // For SDL_ttf.h which uses #include "SDL.h"
         exe.addLibraryPath(b.path("libs/SDL2/lib/x64"));
         exe.linkSystemLibrary("SDL2");
 
-        // Copy SDL2.dll to output directory
-        const install_dll = b.addInstallBinFile(b.path("libs/SDL2/lib/x64/SDL2.dll"), "SDL2.dll");
-        b.getInstallStep().dependOn(&install_dll.step);
+        // Windows: use bundled SDL2_ttf libraries
+        exe.addIncludePath(b.path("libs/SDL2_ttf/include"));
+        exe.addLibraryPath(b.path("libs/SDL2_ttf/lib/x64"));
+        exe.linkSystemLibrary("SDL2_ttf");
+
+        // Copy DLLs to output directory
+        const install_sdl2_dll = b.addInstallBinFile(b.path("libs/SDL2/lib/x64/SDL2.dll"), "SDL2.dll");
+        const install_ttf_dll = b.addInstallBinFile(b.path("libs/SDL2_ttf/lib/x64/SDL2_ttf.dll"), "SDL2_ttf.dll");
+        b.getInstallStep().dependOn(&install_sdl2_dll.step);
+        b.getInstallStep().dependOn(&install_ttf_dll.step);
     } else {
-        // Linux/WSL: use system SDL2
+        // Linux/WSL: use system libraries
         exe.linkSystemLibrary("SDL2");
+        exe.linkSystemLibrary("SDL2_ttf");
     }
     exe.linkLibC();
 

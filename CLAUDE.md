@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Zig application using SDL2 to render a double-buffered window at 60fps. Currently a blank canvas that can be extended with custom rendering. Supports both Linux/WSL and native Windows.
+A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports both Linux/WSL and native Windows.
 
 ## Build Commands
 
@@ -35,14 +35,20 @@ zig build -Doptimize=ReleaseFast
 - SDL2:
   - Linux: `libsdl2-dev` via apt
   - Windows: bundled in `libs/SDL2/` (SDL2 2.30.10)
+- SDL2_ttf:
+  - Linux: `libsdl2-ttf-dev` via apt
+  - Windows: bundled in `libs/SDL2_ttf/` (SDL2_ttf 2.22.0)
+- JetBrains Mono font: bundled in `assets/fonts/`
 
 ## Architecture
 
-- `build.zig` - Build configuration with cross-platform SDL2 linking (detects Windows vs Linux)
-- `src/main.zig` - Main entry point with SDL2 render loop using `@cImport` for C interop
+- `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows vs Linux)
+- `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
 - `libs/SDL2/` - Windows SDL2 libraries (headers, .lib, .dll)
+- `libs/SDL2_ttf/` - Windows SDL2_ttf libraries (headers, .lib, .dll)
+- `assets/fonts/` - JetBrains Mono font for text rendering
 
-The app uses SDL2's hardware-accelerated renderer with vsync for double buffering. Frame timing is handled by vsync with a fallback delay loop.
+The app uses SDL2's hardware-accelerated renderer with vsync for double buffering. Frame timing is handled by vsync with a fallback delay loop. FPS is displayed in the top-right corner using SDL2_ttf.
 
 ## Platform Notes
 
@@ -52,4 +58,4 @@ When building on Windows filesystem (`/mnt/c/...`), Zig's cache has permission i
 For GUI display, ensure WSLg is working or use an X server.
 
 ### Windows
-SDL2.dll is automatically copied to `zig-out/bin/` during build. Ensure `libs/SDL2/` contains the SDL2 development files (see `libs/SDL2/README.md`).
+Required DLLs (SDL2.dll, SDL2_ttf.dll) are automatically copied to `zig-out/bin/` during build.
