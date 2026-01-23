@@ -124,6 +124,18 @@ pub fn main() !void {
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         _ = c.SDL_RenderClear(renderer);
 
+        // Render centered text lines from top to bottom
+        const line_text = "This is a line of text.";
+        var line_w: c_int = 0;
+        var line_h: c_int = 0;
+        _ = c.TTF_SizeText(font, line_text, &line_w, &line_h);
+        const line_spacing: i32 = 4;
+        const line_x = @divTrunc(WINDOW_WIDTH - line_w, 2);
+        var y: i32 = 0;
+        while (y < WINDOW_HEIGHT) : (y += line_h + line_spacing) {
+            _ = drawText(renderer, font, line_text, line_x, y, white);
+        }
+
         // Render FPS text (right-aligned)
         const fps_text = std.fmt.bufPrintZ(&fps_text_buf, "FPS: {d:.1}", .{current_fps}) catch "FPS: ---";
         var text_w: c_int = 0;
