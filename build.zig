@@ -13,7 +13,21 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkSystemLibrary("SDL2");
+    const is_windows = target.result.os.tag == .windows;
+
+    if (is_windows) {
+        // Windows: use bundled SDL2 libraries
+        exe.addIncludePath(b.path("libs/SDL2/include"));
+        exe.addLibraryPath(b.path("libs/SDL2/lib/x64"));
+        exe.linkSystemLibrary("SDL2");
+
+        // Copy SDL2.dll to output directory
+        const install_dll = b.addInstallBinFile(b.path("libs/SDL2/lib/x64/SDL2.dll"), "SDL2.dll");
+        b.getInstallStep().dependOn(&install_dll.step);
+    } else {
+        // Linux/WSL: use system SDL2
+        exe.linkSystemLibrary("SDL2");
+    }
     exe.linkLibC();
 
     b.installArtifact(exe);

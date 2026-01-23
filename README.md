@@ -2,9 +2,11 @@
 
 A Zig application using SDL2 to render a double-buffered window at 60fps.
 
-## Prerequisites (Windows 11 WSL)
+## Prerequisites
 
-### Install Zig 0.15.2
+### Option A: Linux / Windows WSL
+
+#### Install Zig 0.15.2
 
 ```bash
 cd ~
@@ -16,16 +18,26 @@ source ~/.bashrc
 rm zig-x86_64-linux-0.15.2.tar.xz
 ```
 
-### Install SDL2
+#### Install SDL2
 
 ```bash
 sudo apt update
 sudo apt install libsdl2-dev
 ```
 
+### Option B: Native Windows
+
+#### Install Zig 0.15.2
+
+1. Download `zig-windows-x86_64-0.15.2.zip` from https://ziglang.org/download/
+2. Extract to a directory (e.g., `C:\zig`)
+3. Add to PATH: Settings > System > About > Advanced system settings > Environment Variables > Edit PATH
+
+SDL2 libraries are already bundled in `libs/SDL2/`.
+
 ## Building and Running
 
-Ensure Zig is in your PATH (if you followed the installation above, restart your terminal or run `source ~/.bashrc`).
+### Linux / WSL
 
 From the `zig_sdl_gui` directory:
 
@@ -41,9 +53,27 @@ For a release build:
 ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build -Doptimize=ReleaseFast
 ```
 
+### Native Windows
+
+From Command Prompt or PowerShell in the project directory:
+
+```
+zig build run
+```
+
+For a release build:
+
+```
+zig build -Doptimize=ReleaseFast
+```
+
+The executable will be in `zig-out\bin\`. SDL2.dll is automatically copied there during build.
+
+## Controls
+
 Press Escape or close the window to quit.
 
-### Display Setup
+## Display Setup (WSL only)
 
 For the GUI window to appear in WSL, you need one of:
 
