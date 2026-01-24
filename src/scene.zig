@@ -10,6 +10,12 @@ const Camera = camera.Camera;
 const TextCache = text_cache.TextCache;
 const c = sdl.c;
 
+/// Dimensions returned by drawing functions
+pub const DrawDimensions = struct {
+    w: i32,
+    h: i32,
+};
+
 pub const ElementType = enum {
     text_label,
     rectangle,
@@ -58,6 +64,61 @@ pub const Rectangle = struct {
         };
     }
 };
+
+// ============================================================================
+// Standalone Drawing Functions
+// ============================================================================
+
+/// Draw a rectangle outline at the specified screen position with given dimensions.
+/// This is a low-level drawing function that can be called independently of the scene graph.
+pub fn drawRectangleOutline(
+    renderer: *c.SDL_Renderer,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    border_thickness: i32,
+    color: c.SDL_Color,
+) void {
+    // Set draw color
+    _ = c.SDL_SetRenderDrawColor(
+        renderer,
+        color.r,
+        color.g,
+        color.b,
+        color.a,
+    );
+
+    // Draw multiple rectangles to achieve border thickness
+    const thickness = @max(1, border_thickness);
+    var i: i32 = 0;
+    while (i < thickness) : (i += 1) {
+        var sdl_rect = c.SDL_Rect{
+            .x = x + i,
+            .y = y + i,
+            .w = width - i * 2,
+            .h = height - i * 2,
+        };
+        _ = c.SDL_RenderDrawRect(renderer, &sdl_rect);
+    }
+}
+
+/// Draw text using a cache at the specified screen position with given font size.
+/// This is a low-level drawing function that can be called independently of the scene graph.
+/// Returns the displayed dimensions if successful.
+pub fn drawTextCached(
+    cache: *TextCache,
+    renderer: *c.SDL_Renderer,
+    font: *c.TTF_Font,
+    text: [*:0]const u8,
+    x: i32,
+    y: i32,
+    font_size: f32,
+    color: c.SDL_Color,
+) ?DrawDimensions {
+    const dims = cache.draw(renderer, font, text, x, y, font_size, color) orelse return null;
+    return DrawDimensions{ .w = dims.w, .h = dims.h };
+}
 
 pub const Element = struct {
     id: u32,
@@ -214,8 +275,9 @@ pub const SceneGraph = struct {
                     var text_buf: [256]u8 = undefined;
                     const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
 
-                    // Draw the text using the cache
-                    _ = label.cache.draw(
+                    // Draw the text using the standalone drawing function
+                    _ = drawTextCached(
+                        &label.cache,
                         renderer,
                         font,
                         null_term_text.ptr,
@@ -253,28 +315,15 @@ pub const SceneGraph = struct {
                         .screen => rect.border_thickness,
                     };
 
-                    // Set draw color
-                    _ = c.SDL_SetRenderDrawColor(
-                        renderer,
-                        rect.color.r,
-                        rect.color.g,
-                        rect.color.b,
-                        rect.color.a,
-                    );
+                    // Convert to integers for SDL
+                    const x: i32 = @intFromFloat(screen_pos.x);
+                    const y: i32 = @intFromFloat(screen_pos.y);
+                    const w: i32 = @intFromFloat(screen_width);
+                    const h: i32 = @intFromFloat(screen_height);
+                    const thickness: i32 = @intFromFloat(@max(1.0, screen_thickness));
 
-                    // Draw multiple rectangles to achieve border thickness
-                    const thickness_int: i32 = @intFromFloat(@max(1.0, screen_thickness));
-                    var i: i32 = 0;
-                    while (i < thickness_int) : (i += 1) {
-                        const offset = @as(f32, @floatFromInt(i));
-                        var sdl_rect = c.SDL_Rect{
-                            .x = @as(i32, @intFromFloat(screen_pos.x + offset)),
-                            .y = @as(i32, @intFromFloat(screen_pos.y + offset)),
-                            .w = @as(i32, @intFromFloat(screen_width - offset * 2.0)),
-                            .h = @as(i32, @intFromFloat(screen_height - offset * 2.0)),
-                        };
-                        _ = c.SDL_RenderDrawRect(renderer, &sdl_rect);
-                    }
+                    // Draw using the standalone drawing function
+                    drawRectangleOutline(renderer, x, y, w, h, thickness, rect.color);
                 },
             }
         }
@@ -547,3 +596,18 @@ test "SceneGraph.removeElement works with rectangles" {
     try expect(scene.findElement(id2) != null);
 }
 
+test "Standalone drawing functions exist" {
+    // Verify that standalone drawing functions are public and accessible
+    // These functions can be called independently of the scene graph
+    const has_draw_rect = @hasDecl(@This(), "drawRectangleOutline");
+    const has_draw_text = @hasDecl(@This(), "drawTextCached");
+
+    try expect(has_draw_rect);
+    try expect(has_draw_text);
+}
+
+test "DrawDimensions type" {
+    const dims = DrawDimensions{ .w = 100, .h = 50 };
+    try expectEqual(100, dims.w);
+    try expectEqual(50, dims.h);
+}
