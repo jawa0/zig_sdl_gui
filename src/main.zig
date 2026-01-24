@@ -94,6 +94,18 @@ pub fn main() !void {
     const base_font_size: f32 = 16.0;
     const line_text = "This is a line of text.";
     const line_spacing_world: f32 = 4.0; // World-space spacing
+    const border_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Light blue
+    const border_thickness: f32 = 2.0; // World-space border thickness
+    const padding: f32 = 4.0; // World-space padding around text
+
+    // Get text dimensions at base font size for calculating rectangle size
+    _ = c.TTF_SetFontSize(font, @intFromFloat(base_font_size));
+    var line_text_w: c_int = 0;
+    var line_text_h: c_int = 0;
+    _ = c.TTF_SizeText(font, line_text, &line_text_w, &line_text_h);
+
+    const rect_width = @as(f32, @floatFromInt(line_text_w)) + padding * 2.0;
+    const rect_height = @as(f32, @floatFromInt(line_text_h)) + padding * 2.0;
 
     // Calculate total height needed and create lines centered around origin
     const num_lines: i32 = 40;
@@ -104,9 +116,26 @@ pub fn main() !void {
     var i: i32 = 0;
     while (i < num_lines) : (i += 1) {
         const y = start_y - @as(f32, @floatFromInt(i)) * line_height_world;
+
+        // Calculate positions for rectangle (centered around text position)
+        const rect_x = -rect_width / 2.0;
+        const rect_y = y - padding;
+
+        // Add rectangle border
+        _ = try scene_graph.addRectangle(
+            Vec2{ .x = rect_x, .y = rect_y },
+            rect_width,
+            rect_height,
+            border_thickness,
+            border_color,
+            .world,
+        );
+
+        // Add text label (offset by padding to center within rectangle)
+        const text_x = -@as(f32, @floatFromInt(line_text_w)) / 2.0;
         _ = try scene_graph.addTextLabel(
             line_text,
-            Vec2{ .x = 0, .y = y }, // Centered horizontally at x=0
+            Vec2{ .x = text_x, .y = y },
             base_font_size,
             white,
             .world,

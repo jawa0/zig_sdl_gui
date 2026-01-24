@@ -12,7 +12,8 @@ const c = sdl.c;
 
 pub const ElementType = enum {
     text_label,
-    // Future: rectangle, circle, image, etc.
+    rectangle,
+    // Future: circle, image, etc.
 };
 
 pub const CoordinateSpace = enum {
@@ -42,6 +43,22 @@ pub const TextLabel = struct {
     }
 };
 
+pub const Rectangle = struct {
+    width: f32,
+    height: f32,
+    border_thickness: f32,
+    color: c.SDL_Color,
+
+    pub fn init(width: f32, height: f32, border_thickness: f32, color: c.SDL_Color) Rectangle {
+        return Rectangle{
+            .width = width,
+            .height = height,
+            .border_thickness = border_thickness,
+            .color = color,
+        };
+    }
+};
+
 pub const Element = struct {
     id: u32,
     transform: Transform,
@@ -50,11 +67,13 @@ pub const Element = struct {
     element_type: ElementType,
     data: union {
         text_label: TextLabel,
+        rectangle: Rectangle,
     },
 
     pub fn deinit(self: *Element, allocator: std.mem.Allocator) void {
         switch (self.element_type) {
             .text_label => self.data.text_label.deinit(allocator),
+            .rectangle => {}, // No cleanup needed for rectangles
         }
     }
 };
@@ -103,6 +122,37 @@ pub const SceneGraph = struct {
             .visible = true,
             .element_type = .text_label,
             .data = .{ .text_label = label },
+        };
+
+        try self.elements.append(self.allocator, element);
+        return id;
+    }
+
+    pub fn addRectangle(
+        self: *SceneGraph,
+        position: Vec2,
+        width: f32,
+        height: f32,
+        border_thickness: f32,
+        color: c.SDL_Color,
+        space: CoordinateSpace,
+    ) !u32 {
+        const id = self.next_id;
+        self.next_id += 1;
+
+        const rect = Rectangle.init(width, height, border_thickness, color);
+
+        const element = Element{
+            .id = id,
+            .transform = Transform{
+                .position = position,
+                .rotation = 0,
+                .scale = Vec2{ .x = 1, .y = 1 },
+            },
+            .space = space,
+            .visible = true,
+            .element_type = .rectangle,
+            .data = .{ .rectangle = rect },
         };
 
         try self.elements.append(self.allocator, element);
@@ -174,6 +224,57 @@ pub const SceneGraph = struct {
                         target_font_size,
                         label.color,
                     );
+                },
+                .rectangle => {
+                    const rect = &elem.data.rectangle;
+
+                    // Determine position based on coordinate space
+                    const screen_pos = switch (elem.space) {
+                        .world => blk: {
+                            const world_pos = elem.transform.position;
+                            break :blk cam.worldToScreen(world_pos);
+                        },
+                        .screen => blk: {
+                            break :blk elem.transform.position;
+                        },
+                    };
+
+                    // Determine size based on coordinate space (apply zoom to world-space elements)
+                    const screen_width = switch (elem.space) {
+                        .world => rect.width * cam.zoom,
+                        .screen => rect.width,
+                    };
+                    const screen_height = switch (elem.space) {
+                        .world => rect.height * cam.zoom,
+                        .screen => rect.height,
+                    };
+                    const screen_thickness = switch (elem.space) {
+                        .world => rect.border_thickness * cam.zoom,
+                        .screen => rect.border_thickness,
+                    };
+
+                    // Set draw color
+                    _ = c.SDL_SetRenderDrawColor(
+                        renderer,
+                        rect.color.r,
+                        rect.color.g,
+                        rect.color.b,
+                        rect.color.a,
+                    );
+
+                    // Draw multiple rectangles to achieve border thickness
+                    const thickness_int: i32 = @intFromFloat(@max(1.0, screen_thickness));
+                    var i: i32 = 0;
+                    while (i < thickness_int) : (i += 1) {
+                        const offset = @as(f32, @floatFromInt(i));
+                        var sdl_rect = c.SDL_Rect{
+                            .x = @as(i32, @intFromFloat(screen_pos.x + offset)),
+                            .y = @as(i32, @intFromFloat(screen_pos.y + offset)),
+                            .w = @as(i32, @intFromFloat(screen_width - offset * 2.0)),
+                            .h = @as(i32, @intFromFloat(screen_height - offset * 2.0)),
+                        };
+                        _ = c.SDL_RenderDrawRect(renderer, &sdl_rect);
+                    }
                 },
             }
         }
@@ -361,5 +462,88 @@ test "CoordinateSpace enum values" {
 
 test "ElementType enum values" {
     try expectEqual(ElementType.text_label, .text_label);
+    try expectEqual(ElementType.rectangle, .rectangle);
+}
+
+test "Rectangle.init" {
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const rect = Rectangle.init(100, 50, 2, white);
+
+    try expectEqual(100, rect.width);
+    try expectEqual(50, rect.height);
+    try expectEqual(2, rect.border_thickness);
+    try expectEqual(255, rect.color.r);
+}
+
+test "SceneGraph.addRectangle returns unique ID" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const id = try scene.addRectangle(Vec2{ .x = 10, .y = 20 }, 100, 50, 2, white, .world);
+
+    try expectEqual(1, id);
+    try expectEqual(1, scene.elements.items.len);
+}
+
+test "SceneGraph.addRectangle stores correct data" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const blue = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
+    const id = try scene.addRectangle(Vec2{ .x = 10, .y = 20 }, 100, 50, 3, blue, .screen);
+
+    const elem = scene.findElement(id).?;
+
+    try expectEqual(id, elem.id);
+    try expectEqual(10, elem.transform.position.x);
+    try expectEqual(20, elem.transform.position.y);
+    try expectEqual(CoordinateSpace.screen, elem.space);
+    try expect(elem.visible);
+    try expectEqual(ElementType.rectangle, elem.element_type);
+    try expectEqual(100, elem.data.rectangle.width);
+    try expectEqual(50, elem.data.rectangle.height);
+    try expectEqual(3, elem.data.rectangle.border_thickness);
+    try expectEqual(100, elem.data.rectangle.color.r);
+    try expectEqual(150, elem.data.rectangle.color.g);
+    try expectEqual(255, elem.data.rectangle.color.b);
+}
+
+test "SceneGraph mixed elements (text and rectangles)" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const blue = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
+
+    const text_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 0 }, 16, white, .world);
+    const rect_id = try scene.addRectangle(Vec2{ .x = 10, .y = 20 }, 100, 50, 2, blue, .world);
+
+    try expectEqual(2, scene.elements.items.len);
+
+    const text_elem = scene.findElement(text_id).?;
+    const rect_elem = scene.findElement(rect_id).?;
+
+    try expectEqual(ElementType.text_label, text_elem.element_type);
+    try expectEqual(ElementType.rectangle, rect_elem.element_type);
+}
+
+test "SceneGraph.removeElement works with rectangles" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    const id1 = try scene.addRectangle(Vec2{ .x = 0, .y = 0 }, 50, 50, 1, white, .world);
+    const id2 = try scene.addRectangle(Vec2{ .x = 10, .y = 10 }, 100, 100, 2, white, .screen);
+
+    try expectEqual(2, scene.elements.items.len);
+
+    const removed = scene.removeElement(id1);
+    try expect(removed);
+    try expectEqual(1, scene.elements.items.len);
+
+    try expect(scene.findElement(id1) == null);
+    try expect(scene.findElement(id2) != null);
 }
 
