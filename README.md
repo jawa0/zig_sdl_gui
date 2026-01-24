@@ -2,6 +2,8 @@
 
 A Zig application using SDL2 and SDL2_ttf featuring an infinite scrollable canvas with scene graph architecture, camera controls, and intelligent text caching.
 
+![Screenshot](screenshots/screenshot01.png)
+
 ## Prerequisites
 
 ### Option A: Linux / Windows WSL
