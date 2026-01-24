@@ -50,4 +50,34 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the application");
     run_step.dependOn(&run_cmd.step);
+
+    // Test step
+    const unit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // Add the same dependencies as the main executable
+    if (is_windows) {
+        unit_tests.addIncludePath(b.path("libs/SDL2/include"));
+        unit_tests.addIncludePath(b.path("libs/SDL2/include/SDL2"));
+        unit_tests.addLibraryPath(b.path("libs/SDL2/lib/x64"));
+        unit_tests.linkSystemLibrary("SDL2");
+
+        unit_tests.addIncludePath(b.path("libs/SDL2_ttf/include"));
+        unit_tests.addLibraryPath(b.path("libs/SDL2_ttf/lib/x64"));
+        unit_tests.linkSystemLibrary("SDL2_ttf");
+    } else {
+        unit_tests.linkSystemLibrary("SDL2");
+        unit_tests.linkSystemLibrary("SDL2_ttf");
+    }
+    unit_tests.linkLibC();
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
 }

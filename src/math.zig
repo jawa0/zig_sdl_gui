@@ -122,3 +122,258 @@ pub const Mat2x3 = struct {
         };
     }
 };
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+const testing = std.testing;
+const expectEqual = testing.expectEqual;
+const expectApproxEqAbs = testing.expectApproxEqAbs;
+
+// Vec2 Tests
+test "Vec2.init" {
+    const v = Vec2.init(3.0, 4.0);
+    try expectEqual(3.0, v.x);
+    try expectEqual(4.0, v.y);
+}
+
+test "Vec2.add" {
+    const a = Vec2{ .x = 1.0, .y = 2.0 };
+    const b = Vec2{ .x = 3.0, .y = 4.0 };
+    const result = a.add(b);
+    try expectEqual(4.0, result.x);
+    try expectEqual(6.0, result.y);
+}
+
+test "Vec2.sub" {
+    const a = Vec2{ .x = 5.0, .y = 8.0 };
+    const b = Vec2{ .x = 2.0, .y = 3.0 };
+    const result = a.sub(b);
+    try expectEqual(3.0, result.x);
+    try expectEqual(5.0, result.y);
+}
+
+test "Vec2.scale" {
+    const v = Vec2{ .x = 2.0, .y = 3.0 };
+    const result = v.scale(2.5);
+    try expectEqual(5.0, result.x);
+    try expectEqual(7.5, result.y);
+}
+
+test "Vec2.length" {
+    const v = Vec2{ .x = 3.0, .y = 4.0 };
+    try expectEqual(5.0, v.length());
+}
+
+test "Vec2.length zero vector" {
+    const v = Vec2{ .x = 0.0, .y = 0.0 };
+    try expectEqual(0.0, v.length());
+}
+
+test "Vec2.normalize" {
+    const v = Vec2{ .x = 3.0, .y = 4.0 };
+    const n = v.normalize();
+    try expectApproxEqAbs(0.6, n.x, 0.0001);
+    try expectApproxEqAbs(0.8, n.y, 0.0001);
+    try expectApproxEqAbs(1.0, n.length(), 0.0001);
+}
+
+test "Vec2.normalize zero vector" {
+    const v = Vec2{ .x = 0.0, .y = 0.0 };
+    const n = v.normalize();
+    try expectEqual(0.0, n.x);
+    try expectEqual(0.0, n.y);
+}
+
+test "Vec2.rotate 90 degrees" {
+    const v = Vec2{ .x = 1.0, .y = 0.0 };
+    const rotated = v.rotate(std.math.pi / 2.0);
+    try expectApproxEqAbs(0.0, rotated.x, 0.0001);
+    try expectApproxEqAbs(1.0, rotated.y, 0.0001);
+}
+
+test "Vec2.rotate 180 degrees" {
+    const v = Vec2{ .x = 1.0, .y = 0.0 };
+    const rotated = v.rotate(std.math.pi);
+    try expectApproxEqAbs(-1.0, rotated.x, 0.0001);
+    try expectApproxEqAbs(0.0, rotated.y, 0.0001);
+}
+
+test "Vec2.rotate negative angle" {
+    const v = Vec2{ .x = 1.0, .y = 0.0 };
+    const rotated = v.rotate(-std.math.pi / 2.0);
+    try expectApproxEqAbs(0.0, rotated.x, 0.0001);
+    try expectApproxEqAbs(-1.0, rotated.y, 0.0001);
+}
+
+// Transform Tests
+test "Transform.identity" {
+    const t = Transform.identity();
+    try expectEqual(0.0, t.position.x);
+    try expectEqual(0.0, t.position.y);
+    try expectEqual(0.0, t.rotation);
+    try expectEqual(1.0, t.scale.x);
+    try expectEqual(1.0, t.scale.y);
+}
+
+test "Transform.identity transforms point unchanged" {
+    const t = Transform.identity();
+    const point = Vec2{ .x = 5.0, .y = 10.0 };
+    const result = t.transformPoint(point);
+    try expectEqual(point.x, result.x);
+    try expectEqual(point.y, result.y);
+}
+
+test "Transform.transformPoint with translation" {
+    const t = Transform{
+        .position = Vec2{ .x = 10.0, .y = 20.0 },
+        .rotation = 0.0,
+        .scale = Vec2{ .x = 1.0, .y = 1.0 },
+    };
+    const point = Vec2{ .x = 5.0, .y = 3.0 };
+    const result = t.transformPoint(point);
+    try expectEqual(15.0, result.x);
+    try expectEqual(23.0, result.y);
+}
+
+test "Transform.transformPoint with scale" {
+    const t = Transform{
+        .position = Vec2{ .x = 0.0, .y = 0.0 },
+        .rotation = 0.0,
+        .scale = Vec2{ .x = 2.0, .y = 3.0 },
+    };
+    const point = Vec2{ .x = 4.0, .y = 5.0 };
+    const result = t.transformPoint(point);
+    try expectEqual(8.0, result.x);
+    try expectEqual(15.0, result.y);
+}
+
+test "Transform.transformPoint with rotation" {
+    const t = Transform{
+        .position = Vec2{ .x = 0.0, .y = 0.0 },
+        .rotation = std.math.pi / 2.0, // 90 degrees
+        .scale = Vec2{ .x = 1.0, .y = 1.0 },
+    };
+    const point = Vec2{ .x = 1.0, .y = 0.0 };
+    const result = t.transformPoint(point);
+    try expectApproxEqAbs(0.0, result.x, 0.0001);
+    try expectApproxEqAbs(1.0, result.y, 0.0001);
+}
+
+test "Transform.transformPoint combined" {
+    const t = Transform{
+        .position = Vec2{ .x = 10.0, .y = 20.0 },
+        .rotation = std.math.pi / 2.0,
+        .scale = Vec2{ .x = 2.0, .y = 2.0 },
+    };
+    const point = Vec2{ .x = 1.0, .y = 0.0 };
+    const result = t.transformPoint(point);
+    // Scale: (2, 0), Rotate 90deg: (0, 2), Translate: (10, 22)
+    try expectApproxEqAbs(10.0, result.x, 0.0001);
+    try expectApproxEqAbs(22.0, result.y, 0.0001);
+}
+
+test "Transform.toMatrix identity" {
+    const t = Transform.identity();
+    const m = t.toMatrix();
+    try expectEqual(1.0, m.m[0]);
+    try expectEqual(0.0, m.m[1]);
+    try expectEqual(0.0, m.m[2]);
+    try expectEqual(1.0, m.m[3]);
+    try expectEqual(0.0, m.m[4]);
+    try expectEqual(0.0, m.m[5]);
+}
+
+test "Transform.toMatrix matches transformPoint" {
+    const t = Transform{
+        .position = Vec2{ .x = 5.0, .y = 7.0 },
+        .rotation = std.math.pi / 4.0, // 45 degrees
+        .scale = Vec2{ .x = 2.0, .y = 3.0 },
+    };
+    const point = Vec2{ .x = 1.0, .y = 1.0 };
+
+    const direct = t.transformPoint(point);
+    const via_matrix = t.toMatrix().transformPoint(point);
+
+    try expectApproxEqAbs(direct.x, via_matrix.x, 0.0001);
+    try expectApproxEqAbs(direct.y, via_matrix.y, 0.0001);
+}
+
+// Mat2x3 Tests
+test "Mat2x3.identity" {
+    const m = Mat2x3.identity();
+    try expectEqual(1.0, m.m[0]);
+    try expectEqual(0.0, m.m[1]);
+    try expectEqual(0.0, m.m[2]);
+    try expectEqual(1.0, m.m[3]);
+    try expectEqual(0.0, m.m[4]);
+    try expectEqual(0.0, m.m[5]);
+}
+
+test "Mat2x3.identity transforms point unchanged" {
+    const m = Mat2x3.identity();
+    const point = Vec2{ .x = 3.0, .y = 7.0 };
+    const result = m.transformPoint(point);
+    try expectEqual(point.x, result.x);
+    try expectEqual(point.y, result.y);
+}
+
+test "Mat2x3.transformPoint with translation" {
+    const m = Mat2x3{
+        .m = [6]f32{ 1, 0, 0, 1, 10, 20 },
+    };
+    const point = Vec2{ .x = 5.0, .y = 3.0 };
+    const result = m.transformPoint(point);
+    try expectEqual(15.0, result.x);
+    try expectEqual(23.0, result.y);
+}
+
+test "Mat2x3.transformPoint with scale" {
+    const m = Mat2x3{
+        .m = [6]f32{ 2, 0, 0, 3, 0, 0 },
+    };
+    const point = Vec2{ .x = 4.0, .y = 5.0 };
+    const result = m.transformPoint(point);
+    try expectEqual(8.0, result.x);
+    try expectEqual(15.0, result.y);
+}
+
+test "Mat2x3.multiply identity" {
+    const m1 = Mat2x3.identity();
+    const m2 = Mat2x3.identity();
+    const result = m1.multiply(m2);
+
+    for (0..6) |i| {
+        try expectEqual(Mat2x3.identity().m[i], result.m[i]);
+    }
+}
+
+test "Mat2x3.multiply translation" {
+    const t1 = Mat2x3{
+        .m = [6]f32{ 1, 0, 0, 1, 5, 10 },
+    };
+    const t2 = Mat2x3{
+        .m = [6]f32{ 1, 0, 0, 1, 3, 7 },
+    };
+    const result = t1.multiply(t2);
+
+    // Translation should add: (5+3, 10+7)
+    try expectEqual(8.0, result.m[4]);
+    try expectEqual(17.0, result.m[5]);
+}
+
+test "Mat2x3.multiply scale" {
+    const s1 = Mat2x3{
+        .m = [6]f32{ 2, 0, 0, 3, 0, 0 },
+    };
+    const s2 = Mat2x3{
+        .m = [6]f32{ 4, 0, 0, 5, 0, 0 },
+    };
+    const result = s1.multiply(s2);
+
+    // Scale should multiply: (2*4, 3*5)
+    try expectEqual(8.0, result.m[0]);
+    try expectEqual(15.0, result.m[3]);
+}
+
