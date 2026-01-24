@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const is_windows = target.result.os.tag == .windows;
+    const is_macos = target.result.os.tag == .macos;
 
     if (is_windows) {
         // Windows: use bundled SDL2 libraries
@@ -32,6 +33,19 @@ pub fn build(b: *std.Build) void {
         const install_ttf_dll = b.addInstallBinFile(b.path("libs/SDL2_ttf/lib/x64/SDL2_ttf.dll"), "SDL2_ttf.dll");
         b.getInstallStep().dependOn(&install_sdl2_dll.step);
         b.getInstallStep().dependOn(&install_ttf_dll.step);
+    } else if (is_macos) {
+        // macOS: use Homebrew-installed SDL2 libraries
+        // Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel
+        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include/SDL2" });
+        exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+        // Fallback paths for Intel Macs
+        exe.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
+        exe.addIncludePath(.{ .cwd_relative = "/usr/local/include/SDL2" });
+        exe.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+
+        exe.linkSystemLibrary("SDL2");
+        exe.linkSystemLibrary("SDL2_ttf");
     } else {
         // Linux/WSL: use system libraries
         exe.linkSystemLibrary("SDL2");
@@ -69,6 +83,16 @@ pub fn build(b: *std.Build) void {
 
         unit_tests.addIncludePath(b.path("libs/SDL2_ttf/include"));
         unit_tests.addLibraryPath(b.path("libs/SDL2_ttf/lib/x64"));
+        unit_tests.linkSystemLibrary("SDL2_ttf");
+    } else if (is_macos) {
+        unit_tests.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+        unit_tests.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include/SDL2" });
+        unit_tests.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+        unit_tests.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
+        unit_tests.addIncludePath(.{ .cwd_relative = "/usr/local/include/SDL2" });
+        unit_tests.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+
+        unit_tests.linkSystemLibrary("SDL2");
         unit_tests.linkSystemLibrary("SDL2_ttf");
     } else {
         unit_tests.linkSystemLibrary("SDL2");

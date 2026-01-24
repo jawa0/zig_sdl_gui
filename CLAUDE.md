@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports both Linux/WSL and native Windows.
+A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports Linux/WSL, native Windows, and macOS.
 
 ## Build Commands
 
@@ -29,20 +29,35 @@ zig build run
 zig build -Doptimize=ReleaseFast
 ```
 
+### macOS
+
+```bash
+# Install dependencies via Homebrew
+brew install sdl2 sdl2_ttf
+
+# Build and run
+zig build run
+
+# Build optimized release
+zig build -Doptimize=ReleaseFast
+```
+
 ## Dependencies
 
 - Zig 0.15.2
 - SDL2:
   - Linux: `libsdl2-dev` via apt
+  - macOS: `sdl2` via Homebrew
   - Windows: bundled in `libs/SDL2/` (SDL2 2.30.10)
 - SDL2_ttf:
   - Linux: `libsdl2-ttf-dev` via apt
+  - macOS: `sdl2_ttf` via Homebrew
   - Windows: bundled in `libs/SDL2_ttf/` (SDL2_ttf 2.22.0)
 - JetBrains Mono font: bundled in `assets/fonts/`
 
 ## Architecture
 
-- `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows vs Linux)
+- `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
 - `libs/SDL2/` - Windows SDL2 libraries (headers, .lib, .dll)
 - `libs/SDL2_ttf/` - Windows SDL2_ttf libraries (headers, .lib, .dll)
@@ -59,3 +74,6 @@ For GUI display, ensure WSLg is working or use an X server.
 
 ### Windows
 Required DLLs (SDL2.dll, SDL2_ttf.dll) are automatically copied to `zig-out/bin/` during build.
+
+### macOS
+Install SDL2 and SDL2_ttf via Homebrew before building. The build system supports both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`) Homebrew installations.
