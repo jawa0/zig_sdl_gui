@@ -69,6 +69,27 @@ zig build -Doptimize=ReleaseFast
 
 The executable will be in `zig-out\bin\`. Required DLLs are automatically copied there during build.
 
+## Testing
+
+The project includes comprehensive unit tests using Zig's built-in testing framework (55 tests covering math primitives, camera system, and scene graph).
+
+### Linux / WSL
+
+```bash
+ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build test
+```
+
+### Native Windows
+
+```
+zig build test
+```
+
+**Test Coverage:**
+- **Math module** (26 tests): Vec2 operations, Transform, Mat2x3 matrix math
+- **Camera module** (17 tests): Coordinate conversions, pan/zoom, Y-axis flipping
+- **Scene graph** (12 tests): Element management, memory allocation, visibility
+
 ## Controls
 
 | Input | Action |
