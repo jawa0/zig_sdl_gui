@@ -88,7 +88,7 @@ zig build test
 **Test Coverage:**
 - **Math module** (26 tests): Vec2 operations, Transform, Mat2x3 matrix math
 - **Camera module** (17 tests): Coordinate conversions, pan/zoom, Y-axis flipping
-- **Scene graph** (12 tests): Element management, memory allocation, visibility
+- **Scene graph** (18 tests): Element management, text labels, rectangles, memory allocation, visibility
 
 ## Controls
 
@@ -112,15 +112,21 @@ The application demonstrates a modular scene graph system:
 - **Camera System**: World/screen coordinate conversion with Y-axis flipping for proper world-space orientation
 - **Transform System**: Position, rotation, and scale primitives with matrix support
 - **Input Handling**: Mouse tracking with drag detection (3-pixel threshold) and cursor-centered zooming
+- **Rendering Elements**: Text labels with caching, rectangles with configurable border thickness
 
-**Text Rendering with Caching**
+**Rendering Features**
 
-Efficient text rendering at different zoom levels:
-
+Text rendering with caching:
 - Text is rasterized to a texture and cached per element
 - Zooming out scales the cached texture down (fast, good quality)
 - Zooming in re-rasterizes when the target size exceeds 110% of the cached size
 - Avoids pixelation from upscaling while minimizing expensive font rasterization
+
+Rectangle drawing:
+- Unfilled rectangular outlines with configurable border thickness
+- Border thickness scales with camera zoom for world-space elements
+- Positioned using font metrics for precise text borders
+- Light blue borders frame each text label with padding
 
 **Module Structure**
 
