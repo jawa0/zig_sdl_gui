@@ -37,6 +37,14 @@ fn linkLibC(compile: *std.Build.Step.Compile) void {
     }
 }
 
+fn addCMacro(compile: *std.Build.Step.Compile, name: []const u8, value: []const u8) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.addCMacro(name, value);
+    } else {
+        compile.defineCMacro(name, value);
+    }
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -82,6 +90,9 @@ pub fn build(b: *std.Build) void {
             addIncludePath(exe, .{ .cwd_relative = "/usr/local/include/SDL2" });
             addLibraryPath(exe, .{ .cwd_relative = "/usr/local/lib" });
         }
+
+        // Workaround for macOS SDK TargetConditionals.h not recognizing Zig's clang
+        addCMacro(exe, "__clang__", "1");
 
         linkSystemLibrary(exe, "SDL2");
         linkSystemLibrary(exe, "SDL2_ttf");
@@ -133,6 +144,8 @@ pub fn build(b: *std.Build) void {
             addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include/SDL2" });
             addLibraryPath(unit_tests, .{ .cwd_relative = "/usr/local/lib" });
         }
+
+        addCMacro(unit_tests, "__clang__", "1");
 
         linkSystemLibrary(unit_tests, "SDL2");
         linkSystemLibrary(unit_tests, "SDL2_ttf");
