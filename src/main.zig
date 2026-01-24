@@ -32,8 +32,12 @@ const TextCache = struct {
     /// Check if we need to re-rasterize for the given target font size.
     fn needsRasterize(self: *const TextCache, target_font_size: f32) bool {
         if (self.texture == null) return true;
+
+        const EPSILON: f32 = 0.001; // Tolerance for float comparison
+        const max_size_with_tolerance = self.rendered_font_size * UPSCALE_TOLERANCE;
+
         // Re-rasterize if target exceeds cached size by more than tolerance
-        return target_font_size > self.rendered_font_size * UPSCALE_TOLERANCE;
+        return target_font_size > max_size_with_tolerance + EPSILON;
     }
 
     /// Rasterize text at the specified font size and cache the texture.
