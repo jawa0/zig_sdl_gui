@@ -1,6 +1,6 @@
 # zig_sdl_gui
 
-A Zig application using SDL2 and SDL2_ttf to render zoomable text with intelligent texture caching.
+A Zig application using SDL2 and SDL2_ttf featuring an infinite scrollable canvas with scene graph architecture, camera controls, and intelligent text caching.
 
 ## Prerequisites
 
@@ -73,24 +73,44 @@ The executable will be in `zig-out\bin\`. Required DLLs are automatically copied
 
 | Input | Action |
 |-------|--------|
-| Mouse wheel | Zoom in/out |
-| `+` / `-` | Zoom in/out |
+| Left-click drag | Pan canvas |
+| Mouse wheel | Zoom in/out (cursor-centered) |
 | `Escape` | Quit |
 
-Zoom range: 25% to 400%
+- **Panning**: Click and drag with the left mouse button to move around the infinite canvas
+- **Zooming**: Scroll the mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
+- **Zoom range**: 25% to 400%
 
 ## Features
 
+**Scene Graph Architecture**
+
+The application demonstrates a modular scene graph system:
+
+- **Coordinate Spaces**: Elements can be in world space (affected by camera pan/zoom) or screen space (fixed UI like the FPS counter)
+- **Camera System**: World/screen coordinate conversion with Y-axis flipping for proper world-space orientation
+- **Transform System**: Position, rotation, and scale primitives with matrix support
+- **Input Handling**: Mouse tracking with drag detection (3-pixel threshold) and cursor-centered zooming
+
 **Text Rendering with Caching**
 
-The application demonstrates efficient text rendering at different zoom levels:
+Efficient text rendering at different zoom levels:
 
-- Text is rasterized to a texture and cached
+- Text is rasterized to a texture and cached per element
 - Zooming out scales the cached texture down (fast, good quality)
 - Zooming in re-rasterizes when the target size exceeds 110% of the cached size
-- This avoids pixelation from upscaling while minimizing expensive font rasterization
+- Avoids pixelation from upscaling while minimizing expensive font rasterization
 
-The status bar shows current FPS, zoom level, and effective font size in pixels.
+**Module Structure**
+
+- `math.zig`: Vec2, Transform, Mat2x3 math primitives
+- `camera.zig`: Camera with pan/zoom and coordinate transformations
+- `scene.zig`: Scene graph managing elements with transforms
+- `input.zig`: Mouse/keyboard input handling
+- `text_cache.zig`: Optimized text rendering cache
+- `main.zig`: Application orchestration
+
+The status bar shows current FPS, zoom level, and camera position in world coordinates.
 
 ## Display Setup (WSL only)
 
