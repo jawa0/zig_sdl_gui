@@ -27,7 +27,23 @@ sudo apt update
 sudo apt install libsdl2-dev libsdl2-ttf-dev
 ```
 
-### Option B: Native Windows
+### Option B: macOS
+
+#### Install Zig 0.15.2
+
+```bash
+brew install zig
+```
+
+Or download from https://ziglang.org/download/ and add to PATH.
+
+#### Install SDL2 and SDL2_ttf
+
+```bash
+brew install sdl2 sdl2_ttf
+```
+
+### Option C: Native Windows
 
 #### Install Zig 0.15.2
 
@@ -55,6 +71,20 @@ For a release build:
 ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build -Doptimize=ReleaseFast
 ```
 
+### macOS
+
+From the project directory:
+
+```bash
+zig build run
+```
+
+For a release build:
+
+```bash
+zig build -Doptimize=ReleaseFast
+```
+
 ### Native Windows
 
 From Command Prompt or PowerShell in the project directory:
@@ -79,6 +109,12 @@ The project includes comprehensive unit tests using Zig's built-in testing frame
 
 ```bash
 ZIG_LOCAL_CACHE_DIR=/tmp/zig-cache zig build test
+```
+
+### macOS
+
+```bash
+zig build test
 ```
 
 ### Native Windows
