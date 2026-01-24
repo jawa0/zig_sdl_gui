@@ -73,13 +73,12 @@ pub fn build(b: *std.Build) void {
     } else if (is_macos) {
         // macOS: use Homebrew-installed SDL2 libraries
         // Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel
-        addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include" });
-        addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-        addLibraryPath(exe, .{ .cwd_relative = "/opt/homebrew/lib" });
-        // Fallback paths for Intel Macs
-        addIncludePath(exe, .{ .cwd_relative = "/usr/local/include" });
-        addIncludePath(exe, .{ .cwd_relative = "/usr/local/include/SDL2" });
-        addLibraryPath(exe, .{ .cwd_relative = "/usr/local/lib" });
+        const is_apple_silicon = target.result.cpu.arch == .aarch64;
+        const homebrew_prefix = if (is_apple_silicon) "/opt/homebrew" else "/usr/local";
+
+        addIncludePath(exe, .{ .cwd_relative = homebrew_prefix ++ "/include" });
+        addIncludePath(exe, .{ .cwd_relative = homebrew_prefix ++ "/include/SDL2" });
+        addLibraryPath(exe, .{ .cwd_relative = homebrew_prefix ++ "/lib" });
 
         linkSystemLibrary(exe, "SDL2");
         linkSystemLibrary(exe, "SDL2_ttf");
@@ -122,12 +121,12 @@ pub fn build(b: *std.Build) void {
         addLibraryPath(unit_tests, b.path("libs/SDL2_ttf/lib/x64"));
         linkSystemLibrary(unit_tests, "SDL2_ttf");
     } else if (is_macos) {
-        addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include" });
-        addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-        addLibraryPath(unit_tests, .{ .cwd_relative = "/opt/homebrew/lib" });
-        addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include" });
-        addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include/SDL2" });
-        addLibraryPath(unit_tests, .{ .cwd_relative = "/usr/local/lib" });
+        const is_apple_silicon = target.result.cpu.arch == .aarch64;
+        const homebrew_prefix = if (is_apple_silicon) "/opt/homebrew" else "/usr/local";
+
+        addIncludePath(unit_tests, .{ .cwd_relative = homebrew_prefix ++ "/include" });
+        addIncludePath(unit_tests, .{ .cwd_relative = homebrew_prefix ++ "/include/SDL2" });
+        addLibraryPath(unit_tests, .{ .cwd_relative = homebrew_prefix ++ "/lib" });
 
         linkSystemLibrary(unit_tests, "SDL2");
         linkSystemLibrary(unit_tests, "SDL2_ttf");
