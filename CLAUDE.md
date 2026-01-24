@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports Linux/WSL, native Windows, and macOS.
+A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports Linux/WSL and native Windows. macOS support is currently broken.
 
 ## Build Commands
 
@@ -29,13 +29,13 @@ zig build run
 zig build -Doptimize=ReleaseFast
 ```
 
-### macOS
+### macOS (Currently Broken)
 
 ```bash
 # Install dependencies via Homebrew
 brew install sdl2 sdl2_ttf
 
-# Build and run
+# Build and run (BROKEN - see Platform Notes)
 zig build run
 
 # Build optimized release
@@ -44,14 +44,14 @@ zig build -Doptimize=ReleaseFast
 
 ## Dependencies
 
-- Zig 0.15.2
+- Zig 0.15.2 (Windows/Linux), Zig 0.16.0-dev (macOS - currently broken)
 - SDL2:
   - Linux: `libsdl2-dev` via apt
-  - macOS: `sdl2` via Homebrew
+  - macOS: `sdl2` via Homebrew (build currently broken)
   - Windows: bundled in `libs/SDL2/` (SDL2 2.30.10)
 - SDL2_ttf:
   - Linux: `libsdl2-ttf-dev` via apt
-  - macOS: `sdl2_ttf` via Homebrew
+  - macOS: `sdl2_ttf` via Homebrew (build currently broken)
   - Windows: bundled in `libs/SDL2_ttf/` (SDL2_ttf 2.22.0)
 - JetBrains Mono font: bundled in `assets/fonts/`
 
@@ -76,4 +76,6 @@ For GUI display, ensure WSLg is working or use an X server.
 Required DLLs (SDL2.dll, SDL2_ttf.dll) are automatically copied to `zig-out/bin/` during build.
 
 ### macOS
-Install SDL2 and SDL2_ttf via Homebrew before building. The build system supports both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`) Homebrew installations.
+**CURRENTLY BROKEN**: Zig 0.16.0-dev has compatibility issues with macOS SDK headers. The `TargetConditionals.h` header fails with "unknown compiler" error during `@cImport` of SDL headers, even with attempted workarounds defining `__clang__` and `__GNUC__` macros. Tested on macOS 13.2 Ventura with Xcode SDK 13.3.
+
+The build system supports both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`) Homebrew installations when/if this is resolved.
