@@ -37,14 +37,6 @@ fn linkLibC(compile: *std.Build.Step.Compile) void {
     }
 }
 
-fn addCMacro(compile: *std.Build.Step.Compile, name: []const u8, value: []const u8) void {
-    if (is_zig_16_or_later) {
-        compile.root_module.addCMacro(name, value);
-    } else {
-        compile.defineCMacro(name, value);
-    }
-}
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -79,23 +71,10 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&install_sdl2_dll.step);
         b.getInstallStep().dependOn(&install_ttf_dll.step);
     } else if (is_macos) {
-        // macOS: use Homebrew-installed SDL2 libraries
-        // Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel
-        if (target.result.cpu.arch == .aarch64) {
-            addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include" });
-            addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-            addLibraryPath(exe, .{ .cwd_relative = "/opt/homebrew/lib" });
-        } else {
-            addIncludePath(exe, .{ .cwd_relative = "/usr/local/include" });
-            addIncludePath(exe, .{ .cwd_relative = "/usr/local/include/SDL2" });
-            addLibraryPath(exe, .{ .cwd_relative = "/usr/local/lib" });
-        }
-
-        // Workaround for macOS SDK TargetConditionals.h not recognizing Zig's clang
-        addCMacro(exe, "__clang__", "1");
-
-        linkSystemLibrary(exe, "SDL2");
-        linkSystemLibrary(exe, "SDL2_ttf");
+        // macOS: use pkg-config to find SDL2 libraries
+        // This works for both Homebrew locations (Apple Silicon /opt/homebrew, Intel /usr/local)
+        exe.linkSystemLibrary2("sdl2", .{ .use_pkg_config = .force });
+        exe.linkSystemLibrary2("SDL2_ttf", .{ .use_pkg_config = .force });
     } else {
         // Linux/WSL: use system libraries
         linkSystemLibrary(exe, "SDL2");
@@ -135,20 +114,8 @@ pub fn build(b: *std.Build) void {
         addLibraryPath(unit_tests, b.path("libs/SDL2_ttf/lib/x64"));
         linkSystemLibrary(unit_tests, "SDL2_ttf");
     } else if (is_macos) {
-        if (target.result.cpu.arch == .aarch64) {
-            addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include" });
-            addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-            addLibraryPath(unit_tests, .{ .cwd_relative = "/opt/homebrew/lib" });
-        } else {
-            addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include" });
-            addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include/SDL2" });
-            addLibraryPath(unit_tests, .{ .cwd_relative = "/usr/local/lib" });
-        }
-
-        addCMacro(unit_tests, "__clang__", "1");
-
-        linkSystemLibrary(unit_tests, "SDL2");
-        linkSystemLibrary(unit_tests, "SDL2_ttf");
+        unit_tests.linkSystemLibrary2("sdl2", .{ .use_pkg_config = .force });
+        unit_tests.linkSystemLibrary2("SDL2_ttf", .{ .use_pkg_config = .force });
     } else {
         linkSystemLibrary(unit_tests, "SDL2");
         linkSystemLibrary(unit_tests, "SDL2_ttf");
