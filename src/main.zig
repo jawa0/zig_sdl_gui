@@ -142,6 +142,41 @@ pub fn main() !void {
         );
     }
 
+    // Add some standalone experimental rectangles with different colors
+    const red = c.SDL_Color{ .r = 255, .g = 50, .b = 50, .a = 255 };
+    const green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 };
+    const yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 };
+
+    // Large red rectangle on the left
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = -400, .y = -150 },
+        200,
+        100,
+        3.0,
+        red,
+        .world,
+    );
+
+    // Medium green rectangle on the right
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = 250, .y = -100 },
+        150,
+        150,
+        4.0,
+        green,
+        .world,
+    );
+
+    // Small yellow rectangle near top
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = -50, .y = -400 },
+        80,
+        60,
+        2.0,
+        yellow,
+        .world,
+    );
+
     // FPS tracking
     var frame_count: u32 = 0;
     var fps_timer: u32 = c.SDL_GetTicks();
