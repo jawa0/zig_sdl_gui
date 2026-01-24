@@ -1,4 +1,41 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+// Zig 0.16+ moved these methods to root_module
+const zig_version = builtin.zig_version;
+const is_zig_16_or_later = zig_version.major > 0 or zig_version.minor >= 16;
+
+fn addIncludePath(compile: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.addIncludePath(path);
+    } else {
+        compile.addIncludePath(path);
+    }
+}
+
+fn addLibraryPath(compile: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.addLibraryPath(path);
+    } else {
+        compile.addLibraryPath(path);
+    }
+}
+
+fn linkSystemLibrary(compile: *std.Build.Step.Compile, name: []const u8) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.linkSystemLibrary(name, .{});
+    } else {
+        compile.linkSystemLibrary(name);
+    }
+}
+
+fn linkLibC(compile: *std.Build.Step.Compile) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.link_libc = true;
+    } else {
+        compile.linkLibC();
+    }
+}
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -18,42 +55,40 @@ pub fn build(b: *std.Build) void {
 
     if (is_windows) {
         // Windows: use bundled SDL2 libraries
-        exe.addIncludePath(b.path("libs/SDL2/include"));
-        exe.addIncludePath(b.path("libs/SDL2/include/SDL2")); // For SDL_ttf.h which uses #include "SDL.h"
-        exe.addLibraryPath(b.path("libs/SDL2/lib/x64"));
-        exe.linkSystemLibrary("SDL2");
+        addIncludePath(exe, b.path("libs/SDL2/include"));
+        addIncludePath(exe, b.path("libs/SDL2/include/SDL2")); // For SDL_ttf.h which uses #include "SDL.h"
+        addLibraryPath(exe, b.path("libs/SDL2/lib/x64"));
+        linkSystemLibrary(exe, "SDL2");
 
         // Windows: use bundled SDL2_ttf libraries
-        exe.addIncludePath(b.path("libs/SDL2_ttf/include"));
-        exe.addLibraryPath(b.path("libs/SDL2_ttf/lib/x64"));
-        exe.linkSystemLibrary("SDL2_ttf");
+        addIncludePath(exe, b.path("libs/SDL2_ttf/include"));
+        addLibraryPath(exe, b.path("libs/SDL2_ttf/lib/x64"));
+        linkSystemLibrary(exe, "SDL2_ttf");
 
         // Copy DLLs to output directory
         const install_sdl2_dll = b.addInstallBinFile(b.path("libs/SDL2/lib/x64/SDL2.dll"), "SDL2.dll");
         const install_ttf_dll = b.addInstallBinFile(b.path("libs/SDL2_ttf/lib/x64/SDL2_ttf.dll"), "SDL2_ttf.dll");
         b.getInstallStep().dependOn(&install_sdl2_dll.step);
         b.getInstallStep().dependOn(&install_ttf_dll.step);
-        exe.linkLibC();
     } else if (is_macos) {
-        // macOS (Zig 0.16+): use Homebrew-installed SDL2 libraries
+        // macOS: use Homebrew-installed SDL2 libraries
         // Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel
-        exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
-        exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-        exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+        addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include" });
+        addIncludePath(exe, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
+        addLibraryPath(exe, .{ .cwd_relative = "/opt/homebrew/lib" });
         // Fallback paths for Intel Macs
-        exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
-        exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/include/SDL2" });
-        exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+        addIncludePath(exe, .{ .cwd_relative = "/usr/local/include" });
+        addIncludePath(exe, .{ .cwd_relative = "/usr/local/include/SDL2" });
+        addLibraryPath(exe, .{ .cwd_relative = "/usr/local/lib" });
 
-        exe.root_module.linkSystemLibrary("SDL2", .{});
-        exe.root_module.linkSystemLibrary("SDL2_ttf", .{});
-        exe.root_module.link_libc = true;
+        linkSystemLibrary(exe, "SDL2");
+        linkSystemLibrary(exe, "SDL2_ttf");
     } else {
         // Linux/WSL: use system libraries
-        exe.linkSystemLibrary("SDL2");
-        exe.linkSystemLibrary("SDL2_ttf");
-        exe.linkLibC();
+        linkSystemLibrary(exe, "SDL2");
+        linkSystemLibrary(exe, "SDL2_ttf");
     }
+    linkLibC(exe);
 
     b.installArtifact(exe);
 
@@ -78,31 +113,29 @@ pub fn build(b: *std.Build) void {
 
     // Add the same dependencies as the main executable
     if (is_windows) {
-        unit_tests.addIncludePath(b.path("libs/SDL2/include"));
-        unit_tests.addIncludePath(b.path("libs/SDL2/include/SDL2"));
-        unit_tests.addLibraryPath(b.path("libs/SDL2/lib/x64"));
-        unit_tests.linkSystemLibrary("SDL2");
+        addIncludePath(unit_tests, b.path("libs/SDL2/include"));
+        addIncludePath(unit_tests, b.path("libs/SDL2/include/SDL2"));
+        addLibraryPath(unit_tests, b.path("libs/SDL2/lib/x64"));
+        linkSystemLibrary(unit_tests, "SDL2");
 
-        unit_tests.addIncludePath(b.path("libs/SDL2_ttf/include"));
-        unit_tests.addLibraryPath(b.path("libs/SDL2_ttf/lib/x64"));
-        unit_tests.linkSystemLibrary("SDL2_ttf");
-        unit_tests.linkLibC();
+        addIncludePath(unit_tests, b.path("libs/SDL2_ttf/include"));
+        addLibraryPath(unit_tests, b.path("libs/SDL2_ttf/lib/x64"));
+        linkSystemLibrary(unit_tests, "SDL2_ttf");
     } else if (is_macos) {
-        unit_tests.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
-        unit_tests.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include/SDL2" });
-        unit_tests.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
-        unit_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
-        unit_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/include/SDL2" });
-        unit_tests.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+        addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include" });
+        addIncludePath(unit_tests, .{ .cwd_relative = "/opt/homebrew/include/SDL2" });
+        addLibraryPath(unit_tests, .{ .cwd_relative = "/opt/homebrew/lib" });
+        addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include" });
+        addIncludePath(unit_tests, .{ .cwd_relative = "/usr/local/include/SDL2" });
+        addLibraryPath(unit_tests, .{ .cwd_relative = "/usr/local/lib" });
 
-        unit_tests.root_module.linkSystemLibrary("SDL2", .{});
-        unit_tests.root_module.linkSystemLibrary("SDL2_ttf", .{});
-        unit_tests.root_module.link_libc = true;
+        linkSystemLibrary(unit_tests, "SDL2");
+        linkSystemLibrary(unit_tests, "SDL2_ttf");
     } else {
-        unit_tests.linkSystemLibrary("SDL2");
-        unit_tests.linkSystemLibrary("SDL2_ttf");
-        unit_tests.linkLibC();
+        linkSystemLibrary(unit_tests, "SDL2");
+        linkSystemLibrary(unit_tests, "SDL2_ttf");
     }
+    linkLibC(unit_tests);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
