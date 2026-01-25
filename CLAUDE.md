@@ -65,6 +65,46 @@ zig build -Doptimize=ReleaseFast
 
 The app uses SDL2's hardware-accelerated renderer with vsync for double buffering. Frame timing is handled by vsync with a fallback delay loop. FPS is displayed in the top-right corner using SDL2_ttf.
 
+## User Actions & Input System
+
+### Current User Actions
+
+The application currently supports these user actions:
+
+1. **Quit Application** - Exit the application
+2. **Pan Canvas** - Move the camera view around the infinite canvas
+3. **Zoom In at Cursor** - Zoom in 10% centered on cursor position
+4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
+5. **Resize Window** - Change window dimensions
+
+### Current Input Bindings
+
+| Action | Input Binding | Implementation |
+|--------|--------------|----------------|
+| Quit Application | Escape key or window close | `input.zig:30, 32-35` |
+| Pan Canvas | Left mouse button drag | `input.zig:55-65` |
+| Zoom In at Cursor | Mouse wheel up | `input.zig:83-96` |
+| Zoom Out at Cursor | Mouse wheel down | `input.zig:83-96` |
+| Resize Window | Drag window edges/corners | `main.zig:205-210` |
+
+### Input Handling Architecture
+
+- **`src/input.zig`** - `InputState` struct with `handleEvent()` method processes most SDL events
+  - Handles keyboard (Escape), mouse motion, mouse buttons, mouse wheel
+  - Maintains drag state with 3-pixel threshold before panning starts
+  - Applies camera transformations directly via `Camera` API
+- **`src/main.zig`** - Main event loop also handles window-specific events (resize)
+- **Future**: Plan to add action enum and indirection layer to separate actions from bindings, enabling:
+  - Rebindable controls
+  - Action scripting support
+
+### Implementation Notes
+
+- Zoom is cursor-centered: the point under the cursor stays fixed during zoom operations
+- Pan uses drag detection with 3-pixel threshold to distinguish clicks from drags
+- Zoom range is constrained to 25%-400% (enforced in `camera.zig`)
+- Window resize updates FPS/status line position to stay anchored to right edge
+
 ## Platform Notes
 
 ### WSL

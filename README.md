@@ -130,15 +130,34 @@ zig build test
 
 ## Controls
 
-| Input | Action |
-|-------|--------|
-| Left-click drag | Pan canvas |
-| Mouse wheel | Zoom in/out (cursor-centered) |
-| `Escape` | Quit |
+### Input Bindings
+
+| Action | Input Binding |
+|--------|--------------|
+| Pan canvas | Left mouse button drag |
+| Zoom in at cursor | Mouse wheel up |
+| Zoom out at cursor | Mouse wheel down |
+| Quit application | `Escape` key or window close button |
+| Resize window | Drag window edges/corners |
+
+### Details
 
 - **Panning**: Click and drag with the left mouse button to move around the infinite canvas
 - **Zooming**: Scroll the mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
-- **Zoom range**: 25% to 400%
+  - Mouse wheel up: Zoom in by 10%
+  - Mouse wheel down: Zoom out by 10%
+  - **Zoom range**: 25% to 400%
+- **Resizing**: Window is resizable; status line anchors to the right edge of the window
+
+### All User Actions
+
+The application supports the following actions (bindings may be customizable in the future):
+
+1. **Quit Application** - Exit the application (bound to Escape key or window close)
+2. **Pan Canvas** - Move the camera view around the canvas (bound to left-click drag)
+3. **Zoom In at Cursor** - Zoom in centered on cursor position (bound to mouse wheel up)
+4. **Zoom Out at Cursor** - Zoom out centered on cursor position (bound to mouse wheel down)
+5. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
 
 ## Features
 
