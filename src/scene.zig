@@ -231,14 +231,18 @@ pub const SceneGraph = struct {
         return false;
     }
 
-    /// Clear all world-space elements, preserving screen-space elements
-    pub fn clearWorld(self: *SceneGraph) void {
+    /// Clear all elements except those with the given IDs (typically screen-space UI like FPS).
+    /// Used when regenerating scene content with new colors.
+    pub fn clearExcept(self: *SceneGraph, preserved_ids: []const u32) void {
         var i: usize = 0;
         while (i < self.elements.items.len) {
-            if (self.elements.items[i].space == .world) {
+            const should_preserve = for (preserved_ids) |id| {
+                if (self.elements.items[i].id == id) break true;
+            } else false;
+
+            if (!should_preserve) {
                 self.elements.items[i].deinit(self.allocator);
                 _ = self.elements.swapRemove(i);
-                // Don't increment i since swapRemove fills this slot with the last element
             } else {
                 i += 1;
             }

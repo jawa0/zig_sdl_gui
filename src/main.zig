@@ -22,10 +22,11 @@ const TARGET_FPS = 60;
 const FRAME_TIME_MS: u32 = 1000 / TARGET_FPS;
 const FPS_UPDATE_INTERVAL_MS: u32 = 500;
 
-/// Populate the scene graph with test content using the given color scheme
-fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Font) !void {
-    // Clear existing scene
-    scene_graph.clearWorld();
+/// Populate the scene graph with test content using the given color scheme.
+/// Preserves elements with IDs in the preserved_ids array.
+fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Font, preserved_ids: []const u32) !void {
+    // Clear existing scene except preserved elements (e.g., FPS display)
+    scene_graph.clearExcept(preserved_ids);
 
     // Create test text lines in world space (centered vertically around origin)
     const base_font_size: f32 = 16.0;
@@ -182,7 +183,8 @@ pub fn main() !void {
 
     // Get current color scheme and populate scene
     var colors = ColorScheme.get(action_mgr.scheme_type);
-    try populateScene(&scene_graph, colors, font);
+    const no_preserved_ids: []const u32 = &[_]u32{};
+    try populateScene(&scene_graph, colors, font, no_preserved_ids);
 
     // Window size tracking (for handling resize)
     var window_width: c_int = WINDOW_WIDTH;
@@ -225,7 +227,9 @@ pub fn main() !void {
         // Update color scheme if it changed
         if (action_mgr.scheme_changed) {
             colors = ColorScheme.get(action_mgr.scheme_type);
-            try populateScene(&scene_graph, colors, font);
+            // Preserve FPS display if it exists, regenerate everything else
+            const preserved_ids: []const u32 = if (fps_element_id) |id| &[_]u32{id} else &[_]u32{};
+            try populateScene(&scene_graph, colors, font, preserved_ids);
             fps_needs_update = true; // Force FPS display update with new colors
         }
 
