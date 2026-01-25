@@ -6,12 +6,14 @@ const input = @import("input.zig");
 const text_cache = @import("text_cache.zig");
 const sdl = @import("sdl.zig");
 const action_handler = @import("action_handler.zig");
+const color_scheme = @import("color_scheme.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
 const SceneGraph = scene.SceneGraph;
 const InputState = input.InputState;
 const ActionHandler = action_handler.ActionHandler;
+const ColorScheme = color_scheme.ColorScheme;
 const c = sdl.c;
 
 const WINDOW_WIDTH = 1400;
@@ -19,6 +21,93 @@ const WINDOW_HEIGHT = 900;
 const TARGET_FPS = 60;
 const FRAME_TIME_MS: u32 = 1000 / TARGET_FPS;
 const FPS_UPDATE_INTERVAL_MS: u32 = 500;
+
+/// Populate the scene graph with test content using the given color scheme
+fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Font) !void {
+    // Clear existing scene
+    scene_graph.clearWorld();
+
+    // Create test text lines in world space (centered vertically around origin)
+    const base_font_size: f32 = 16.0;
+    const line_text = "This is a line of text.";
+    const line_spacing_world: f32 = 4.0; // World-space spacing
+    const border_thickness: f32 = 2.0; // World-space border thickness
+    const padding: f32 = 4.0; // World-space padding around text
+
+    // Get text dimensions at base font size for calculating rectangle size
+    _ = c.TTF_SetFontSize(font, @intFromFloat(base_font_size));
+    var line_text_w: c_int = 0;
+    var line_text_h: c_int = 0;
+    _ = c.TTF_SizeText(font, line_text, &line_text_w, &line_text_h);
+
+    const rect_width = @as(f32, @floatFromInt(line_text_w)) + padding * 2.0;
+    const rect_height = @as(f32, @floatFromInt(line_text_h)) + padding * 2.0;
+
+    // Calculate total height needed and create lines centered around origin
+    const num_lines: i32 = 40;
+    const line_height_world = base_font_size + line_spacing_world;
+    const total_height = @as(f32, @floatFromInt(num_lines)) * line_height_world;
+    const start_y = total_height / 2.0;
+
+    var i: i32 = 0;
+    while (i < num_lines) : (i += 1) {
+        const y = start_y - @as(f32, @floatFromInt(i)) * line_height_world;
+
+        // Calculate positions for rectangle (centered around text position)
+        const rect_x = -rect_width / 2.0;
+        const rect_y = y - padding;
+
+        // Add rectangle border
+        _ = try scene_graph.addRectangle(
+            Vec2{ .x = rect_x, .y = rect_y },
+            rect_width,
+            rect_height,
+            border_thickness,
+            colors.border,
+            .world,
+        );
+
+        // Add text label (offset by padding to center within rectangle)
+        const text_x = -@as(f32, @floatFromInt(line_text_w)) / 2.0;
+        _ = try scene_graph.addTextLabel(
+            line_text,
+            Vec2{ .x = text_x, .y = y },
+            base_font_size,
+            colors.text,
+            .world,
+        );
+    }
+
+    // Large red rectangle on the left
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = -400, .y = -150 },
+        200,
+        100,
+        3.0,
+        colors.rect_red,
+        .world,
+    );
+
+    // Medium green rectangle on the right
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = 250, .y = -100 },
+        150,
+        150,
+        4.0,
+        colors.rect_green,
+        .world,
+    );
+
+    // Small yellow rectangle near top
+    _ = try scene_graph.addRectangle(
+        Vec2{ .x = -50, .y = -400 },
+        80,
+        60,
+        2.0,
+        colors.rect_yellow,
+        .world,
+    );
+}
 
 pub fn main() !void {
     // Initialize allocator
@@ -75,8 +164,6 @@ pub fn main() !void {
     };
     defer c.TTF_CloseFont(font);
 
-    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
         Vec2{ .x = 0, .y = 0 },
@@ -93,92 +180,9 @@ pub fn main() !void {
     var input_state = InputState.init();
     var action_mgr = ActionHandler.init();
 
-    // Create test text lines in world space (centered vertically around origin)
-    const base_font_size: f32 = 16.0;
-    const line_text = "This is a line of text.";
-    const line_spacing_world: f32 = 4.0; // World-space spacing
-    const border_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Light blue
-    const border_thickness: f32 = 2.0; // World-space border thickness
-    const padding: f32 = 4.0; // World-space padding around text
-
-    // Get text dimensions at base font size for calculating rectangle size
-    _ = c.TTF_SetFontSize(font, @intFromFloat(base_font_size));
-    var line_text_w: c_int = 0;
-    var line_text_h: c_int = 0;
-    _ = c.TTF_SizeText(font, line_text, &line_text_w, &line_text_h);
-
-    const rect_width = @as(f32, @floatFromInt(line_text_w)) + padding * 2.0;
-    const rect_height = @as(f32, @floatFromInt(line_text_h)) + padding * 2.0;
-
-    // Calculate total height needed and create lines centered around origin
-    const num_lines: i32 = 40;
-    const line_height_world = base_font_size + line_spacing_world;
-    const total_height = @as(f32, @floatFromInt(num_lines)) * line_height_world;
-    const start_y = total_height / 2.0;
-
-    var i: i32 = 0;
-    while (i < num_lines) : (i += 1) {
-        const y = start_y - @as(f32, @floatFromInt(i)) * line_height_world;
-
-        // Calculate positions for rectangle (centered around text position)
-        const rect_x = -rect_width / 2.0;
-        const rect_y = y - padding;
-
-        // Add rectangle border
-        _ = try scene_graph.addRectangle(
-            Vec2{ .x = rect_x, .y = rect_y },
-            rect_width,
-            rect_height,
-            border_thickness,
-            border_color,
-            .world,
-        );
-
-        // Add text label (offset by padding to center within rectangle)
-        const text_x = -@as(f32, @floatFromInt(line_text_w)) / 2.0;
-        _ = try scene_graph.addTextLabel(
-            line_text,
-            Vec2{ .x = text_x, .y = y },
-            base_font_size,
-            white,
-            .world,
-        );
-    }
-
-    // Add some standalone experimental rectangles with different colors
-    const red = c.SDL_Color{ .r = 255, .g = 50, .b = 50, .a = 255 };
-    const green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 };
-    const yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 };
-
-    // Large red rectangle on the left
-    _ = try scene_graph.addRectangle(
-        Vec2{ .x = -400, .y = -150 },
-        200,
-        100,
-        3.0,
-        red,
-        .world,
-    );
-
-    // Medium green rectangle on the right
-    _ = try scene_graph.addRectangle(
-        Vec2{ .x = 250, .y = -100 },
-        150,
-        150,
-        4.0,
-        green,
-        .world,
-    );
-
-    // Small yellow rectangle near top
-    _ = try scene_graph.addRectangle(
-        Vec2{ .x = -50, .y = -400 },
-        80,
-        60,
-        2.0,
-        yellow,
-        .world,
-    );
+    // Get current color scheme and populate scene
+    var colors = ColorScheme.get(action_mgr.scheme_type);
+    try populateScene(&scene_graph, colors, font);
 
     // Window size tracking (for handling resize)
     var window_width: c_int = WINDOW_WIDTH;
@@ -216,6 +220,13 @@ pub fn main() !void {
                     fps_needs_update = true;
                 }
             }
+        }
+
+        // Update color scheme if it changed
+        if (action_mgr.scheme_changed) {
+            colors = ColorScheme.get(action_mgr.scheme_type);
+            try populateScene(&scene_graph, colors, font);
+            fps_needs_update = true; // Force FPS display update with new colors
         }
 
         // Update FPS counter
@@ -257,13 +268,13 @@ pub fn main() !void {
                 fps_text,
                 Vec2{ .x = fps_x, .y = fps_y },
                 16.0,
-                white,
+                colors.text,
                 .screen,
             );
         }
 
-        // Clear screen (blank canvas - off-white paper color)
-        _ = c.SDL_SetRenderDrawColor(renderer, 248, 246, 240, 255);
+        // Clear screen with current color scheme background
+        _ = c.SDL_SetRenderDrawColor(renderer, colors.background.r, colors.background.g, colors.background.b, colors.background.a);
         _ = c.SDL_RenderClear(renderer);
 
         // Render all scene elements

@@ -37,6 +37,9 @@ pub const InputState = struct {
                 if (event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE) {
                     return ActionParams{ .quit = {} };
                 }
+                if (event.key.keysym.scancode == c.SDL_SCANCODE_D) {
+                    return ActionParams{ .toggle_color_scheme = {} };
+                }
             },
 
             c.SDL_MOUSEMOTION => {

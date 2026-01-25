@@ -231,6 +231,20 @@ pub const SceneGraph = struct {
         return false;
     }
 
+    /// Clear all world-space elements, preserving screen-space elements
+    pub fn clearWorld(self: *SceneGraph) void {
+        var i: usize = 0;
+        while (i < self.elements.items.len) {
+            if (self.elements.items[i].space == .world) {
+                self.elements.items[i].deinit(self.allocator);
+                _ = self.elements.swapRemove(i);
+                // Don't increment i since swapRemove fills this slot with the last element
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     pub fn findElement(self: *SceneGraph, id: u32) ?*Element {
         for (self.elements.items) |*elem| {
             if (elem.id == id) {
