@@ -5,11 +5,13 @@ const scene = @import("scene.zig");
 const input = @import("input.zig");
 const text_cache = @import("text_cache.zig");
 const sdl = @import("sdl.zig");
+const action_handler = @import("action_handler.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
 const SceneGraph = scene.SceneGraph;
 const InputState = input.InputState;
+const ActionHandler = action_handler.ActionHandler;
 const c = sdl.c;
 
 const WINDOW_WIDTH = 1400;
@@ -45,7 +47,7 @@ pub fn main() !void {
         c.SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
-        c.SDL_WINDOW_SHOWN,
+        c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_RESIZABLE,
     ) orelse {
         std.debug.print("Window creation failed: {s}\n", .{c.SDL_GetError()});
         return error.WindowCreationFailed;
@@ -87,8 +89,9 @@ pub fn main() !void {
     var scene_graph = SceneGraph.init(allocator);
     defer scene_graph.deinit();
 
-    // Initialize input state
+    // Initialize input state and action handler
     var input_state = InputState.init();
+    var action_mgr = ActionHandler.init();
 
     // Create test text lines in world space (centered vertically around origin)
     const base_font_size: f32 = 16.0;
@@ -177,12 +180,17 @@ pub fn main() !void {
         .world,
     );
 
+    // Window size tracking (for handling resize)
+    var window_width: c_int = WINDOW_WIDTH;
+    var window_height: c_int = WINDOW_HEIGHT;
+
     // FPS tracking
     var frame_count: u32 = 0;
     var fps_timer: u32 = c.SDL_GetTicks();
     var current_fps: f32 = 0;
     var fps_text_buf: [64]u8 = undefined;
     var fps_element_id: ?u32 = null;
+    var fps_needs_update = true; // Force initial update
 
     var running = true;
     var event: c.SDL_Event = undefined;
@@ -192,8 +200,21 @@ pub fn main() !void {
 
         // Handle events
         while (c.SDL_PollEvent(&event) != 0) {
-            if (input_state.handleEvent(&event, &cam)) {
-                running = false;
+            // Generate action from input event
+            if (input_state.handleEvent(&event, &cam)) |action_params| {
+                // Process the action
+                if (action_mgr.handle(action_params, &cam)) {
+                    running = false;
+                }
+            }
+
+            // Handle window resize
+            if (event.type == c.SDL_WINDOWEVENT) {
+                if (event.window.event == c.SDL_WINDOWEVENT_SIZE_CHANGED) {
+                    window_width = event.window.data1;
+                    window_height = event.window.data2;
+                    fps_needs_update = true;
+                }
             }
         }
 
@@ -204,6 +225,12 @@ pub fn main() !void {
             current_fps = @as(f32, @floatFromInt(frame_count)) * 1000.0 / @as(f32, @floatFromInt(elapsed));
             frame_count = 0;
             fps_timer = c.SDL_GetTicks();
+            fps_needs_update = true;
+        }
+
+        // Update FPS display (when counter updates or window resizes)
+        if (fps_needs_update) {
+            fps_needs_update = false;
 
             // Update FPS display element (remove old, add new)
             if (fps_element_id) |id| {
@@ -222,8 +249,8 @@ pub fn main() !void {
             _ = c.TTF_SetFontSize(font, 16);
             _ = c.TTF_SizeText(font, fps_text.ptr, &text_w, null);
 
-            // Position in top-right corner (screen space)
-            const fps_x = @as(f32, @floatFromInt(WINDOW_WIDTH - text_w - 10));
+            // Position in top-right corner (screen space, anchored to right edge)
+            const fps_x = @as(f32, @floatFromInt(window_width - text_w - 10));
             const fps_y: f32 = 10;
 
             fps_element_id = try scene_graph.addTextLabel(

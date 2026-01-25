@@ -2,10 +2,14 @@ const std = @import("std");
 const math = @import("math.zig");
 const camera = @import("camera.zig");
 const sdl = @import("sdl.zig");
+const action = @import("action.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
 const c = sdl.c;
+const ActionParams = action.ActionParams;
+const PanParams = action.PanParams;
+const ZoomParams = action.ZoomParams;
 
 pub const InputState = struct {
     mouse_x: f32 = 0,
@@ -23,15 +27,15 @@ pub const InputState = struct {
         return InputState{};
     }
 
-    /// Handle an SDL event and update camera accordingly.
-    /// Returns true if the application should quit.
-    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *Camera) bool {
+    /// Handle an SDL event and generate an action if applicable.
+    /// Returns an action to be processed by the ActionHandler, or null if no action.
+    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera) ?ActionParams {
         switch (event.type) {
-            c.SDL_QUIT => return true,
+            c.SDL_QUIT => return ActionParams{ .quit = {} },
 
             c.SDL_KEYDOWN => {
                 if (event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE) {
-                    return true;
+                    return ActionParams{ .quit = {} };
                 }
             },
 
@@ -49,6 +53,7 @@ pub const InputState = struct {
                         self.is_dragging = true;
                         self.drag_start_x = self.mouse_x;
                         self.drag_start_y = self.mouse_y;
+                        return ActionParams{ .pan_start = PanParams{ .delta_x = 0, .delta_y = 0 } };
                     }
                 }
 
@@ -57,11 +62,11 @@ pub const InputState = struct {
                     const dx = self.mouse_x - self.drag_start_x;
                     const dy = self.mouse_y - self.drag_start_y;
 
-                    cam.pan(Vec2{ .x = -dx, .y = -dy });
-
                     // Update drag start for next frame
                     self.drag_start_x = self.mouse_x;
                     self.drag_start_y = self.mouse_y;
+
+                    return ActionParams{ .pan_move = PanParams{ .delta_x = -dx, .delta_y = -dy } };
                 }
             },
 
@@ -76,7 +81,10 @@ pub const InputState = struct {
             c.SDL_MOUSEBUTTONUP => {
                 if (event.button.button == c.SDL_BUTTON_LEFT) {
                     self.mouse_button_down = false;
-                    self.is_dragging = false;
+                    if (self.is_dragging) {
+                        self.is_dragging = false;
+                        return ActionParams{ .pan_end = {} };
+                    }
                 }
             },
 
@@ -90,14 +98,23 @@ pub const InputState = struct {
                     0.0;
 
                 if (zoom_delta != 0) {
-                    const cursor_pos = Vec2{ .x = self.mouse_x, .y = self.mouse_y };
-                    cam.zoomAt(cursor_pos, zoom_delta);
+                    const zoom_params = ZoomParams{
+                        .cursor_x = self.mouse_x,
+                        .cursor_y = self.mouse_y,
+                        .delta = zoom_delta,
+                    };
+
+                    if (event.wheel.y > 0) {
+                        return ActionParams{ .zoom_in = zoom_params };
+                    } else {
+                        return ActionParams{ .zoom_out = zoom_params };
+                    }
                 }
             },
 
             else => {},
         }
 
-        return false;
+        return null;
     }
 };
