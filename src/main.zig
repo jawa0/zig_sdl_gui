@@ -262,8 +262,8 @@ pub fn main() !void {
             );
         }
 
-        // Clear screen (blank canvas - black)
-        _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        // Clear screen (blank canvas - off-white paper color)
+        _ = c.SDL_SetRenderDrawColor(renderer, 248, 246, 240, 255);
         _ = c.SDL_RenderClear(renderer);
 
         // Render all scene elements
