@@ -244,7 +244,6 @@ pub fn main() !void {
                         _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
                     }
                 }
-                // Text creation mode is handled by double-click in input.zig
             }
 
             // Generate action from input event
@@ -252,9 +251,22 @@ pub fn main() !void {
                 // Check if we're entering or leaving text edit mode to enable/disable text input
                 const was_editing = action_mgr.text_edit.is_editing;
 
+                // Special handling for begin_text_edit: only allow if not clicking on an element
+                const should_process = switch (action_params) {
+                    .begin_text_edit => |edit_params| blk: {
+                        // Check if double-click is on an element
+                        const hit_id = scene_graph.hitTest(edit_params.screen_x, edit_params.screen_y, &cam);
+                        // Only begin text edit if clicking on blank canvas (no element hit)
+                        break :blk hit_id == null;
+                    },
+                    else => true, // Process all other actions normally
+                };
+
                 // Process the action
-                if (action_mgr.handle(action_params, &cam)) {
-                    running = false;
+                if (should_process) {
+                    if (action_mgr.handle(action_params, &cam)) {
+                        running = false;
+                    }
                 }
 
                 // Enable/disable SDL text input

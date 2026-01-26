@@ -33,9 +33,8 @@ pub const InputState = struct {
     /// Handle an SDL event and generate an action if applicable.
     /// Returns an action to be processed by the ActionHandler, or null if no action.
     /// is_editing parameter indicates if we're currently in text editing mode
-    /// current_tool indicates which tool is active
-    /// Note: Some events (like single clicks in selection mode) require additional processing in main.zig for hit testing
-    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera, is_editing: bool, current_tool: Tool) ?ActionParams {
+    /// Note: Some events (like single clicks and double-clicks) require additional processing in main.zig for hit testing
+    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera, is_editing: bool, _: Tool) ?ActionParams {
         switch (event.type) {
             c.SDL_QUIT => return ActionParams{ .quit = {} },
 
@@ -106,8 +105,8 @@ pub const InputState = struct {
             },
 
             c.SDL_MOUSEBUTTONDOWN => {
-                // Only handle double-click for text creation in text creation tool mode
-                if (event.button.button == c.SDL_BUTTON_LEFT and current_tool == .text_creation) {
+                // Track double-clicks for text creation (works in any tool mode)
+                if (event.button.button == c.SDL_BUTTON_LEFT) {
                     const click_x = @as(f32, @floatFromInt(event.button.x));
                     const click_y = @as(f32, @floatFromInt(event.button.y));
                     const current_time = c.SDL_GetTicks();
@@ -119,7 +118,8 @@ pub const InputState = struct {
                     const distance = @sqrt(dx * dx + dy * dy);
 
                     if (time_since_last <= DOUBLE_CLICK_TIME_MS and distance <= DOUBLE_CLICK_DISTANCE) {
-                        // Double-click detected
+                        // Double-click detected - request text edit
+                        // Note: main.zig will check if click is on blank canvas
                         return ActionParams{ .begin_text_edit = TextEditParams{
                             .screen_x = click_x,
                             .screen_y = click_y,

@@ -136,7 +136,7 @@ zig build test
 |--------|--------------|
 | Select element | Left-click on element (in selection mode) |
 | Deselect all | Left-click on empty canvas (in selection mode) |
-| Create/edit text | Double-click on canvas (in text creation mode) |
+| Create/edit text | Double-click on empty canvas (any mode) |
 | Exit text editing | `Escape` key (while editing) |
 | Pan canvas | Trackpad scroll (or mouse wheel) |
 | Zoom in at cursor | `Ctrl` + trackpad scroll up (or `Ctrl` + mouse wheel up) |
@@ -151,7 +151,7 @@ zig build test
 
 - **Tools**: The application has a tool system (toolbar UI coming later):
   - **Selection Tool** (default): Click to select elements, shows blue bounding box
-  - **Text Creation Tool**: Double-click to create editable text (not accessible yet without toolbar)
+  - **Text Creation Tool**: For creating text (not accessible yet without toolbar)
   - Elements are tested for hits using their bounding boxes
   - Z-order: Elements drawn later appear on top and are hit-tested first
 - **Selection**: Click on any element to select it (blue bounding box appears), click empty space to deselect
@@ -169,7 +169,8 @@ zig build test
   - As you zoom in, minor divisions (5 per major) fade in smoothly
   - Grid lines fade from background color to grid color based on zoom level
   - Recursively subdivides: minor lines become major lines as you zoom further
-- **Text Editing**: Double-click anywhere on the canvas to create editable text:
+- **Text Editing**: Double-click on empty canvas to create editable text (works in any tool mode):
+  - Double-clicking on an existing element will not start text editing (selection takes priority)
   - A blinking cursor appears at the click location
   - Type alphanumeric characters to add text
   - Press `Enter` to add a new line
