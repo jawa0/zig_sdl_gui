@@ -7,8 +7,8 @@ pub const Camera = struct {
     zoom: f32, // Zoom level (1.0 = 100%)
     viewport_width: f32,
     viewport_height: f32,
-    min_zoom: f32 = 0.25,
-    max_zoom: f32 = 4.0,
+    min_zoom: f32 = 0.01,
+    max_zoom: f32 = 100.0,
 
     pub fn init(position: Vec2, zoom: f32, viewport_width: f32, viewport_height: f32) Camera {
         return Camera{

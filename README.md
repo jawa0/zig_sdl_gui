@@ -148,7 +148,7 @@ zig build test
 - **Zooming**: Hold `Ctrl` and scroll with trackpad or mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
   - `Ctrl` + scroll up: Zoom in by 10%
   - `Ctrl` + scroll down: Zoom out by 10%
-  - **Zoom range**: 25% to 400%
+  - **Zoom range**: 1% to 10,000% (0.01x to 100x)
 - **Grid**: Press `G` to toggle the grid on/off. Grid uses recursive subdivision with fading:
   - Major divisions at 150 world units (~6 per screen height at default zoom)
   - As you zoom in, minor divisions (5 per major) fade in smoothly

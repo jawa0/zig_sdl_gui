@@ -112,7 +112,7 @@ The application currently supports these user actions:
 - Zoom is cursor-centered: the point under the cursor stays fixed during zoom operations
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
-- Zoom range is constrained to 25%-400% (enforced in `camera.zig`)
+- Zoom range is constrained to 1%-10,000% (0.01x to 100x, enforced in `camera.zig`)
 - Grid system: Recursive subdivision with zoom-based fading
   - Base spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0)
   - Minor divisions: 5 per major division (30, 6, 1.2, ... world units)
