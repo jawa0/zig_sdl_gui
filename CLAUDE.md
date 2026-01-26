@@ -59,11 +59,13 @@ zig build -Doptimize=ReleaseFast
 
 - `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
+- `src/tool.zig` - Tool system enum (Selection, TextCreation)
 - `src/grid.zig` - Grid rendering system with recursive subdivision and zoom-based fading
 - `src/math.zig` - Math utilities including Vec2, Transform, lerp, and clamp functions
 - `src/action.zig` - Action enum and parameters for input indirection
-- `src/action_handler.zig` - Processes actions and updates application state
-- `src/input.zig` - Input handling that returns actions instead of directly manipulating state
+- `src/action_handler.zig` - Processes actions and updates application state, tracks current tool and selection
+- `src/input.zig` - Tool-aware input handling that returns actions instead of directly manipulating state
+- `src/scene.zig` - Scene graph with hit testing and bounding box calculations
 - `src/color_scheme.zig` - Light and dark color scheme definitions
 - `libs/SDL2/` - Windows SDL2 libraries (headers, .lib, .dll)
 - `libs/SDL2_ttf/` - Windows SDL2_ttf libraries (headers, .lib, .dll)
@@ -116,6 +118,23 @@ The application currently supports these user actions:
 
 ### Implementation Notes
 
+- Tool system:
+  - Two tools: Selection (default) and TextCreation
+  - Current tool tracked in ActionHandler (current_tool field)
+  - Tool determines mouse click behavior
+  - No toolbar UI yet - will be added later
+- Selection system:
+  - Hit testing: checks bounding boxes of all elements at click position
+  - Z-order: elements later in list are on top, hit-tested first (backward iteration)
+  - Selected element ID tracked in ActionHandler (selected_element_id field)
+  - Blue bounding box (2px border) drawn for selected elements
+  - Selection mode: single click selects, click empty space deselects
+  - Text creation mode: double-click creates text
+- Bounding boxes:
+  - Calculated dynamically based on element type and camera zoom
+  - Text labels: use TTF_SizeText to get dimensions
+  - Rectangles: use width/height scaled by zoom
+  - All calculations in screen coordinates
 - Zoom is cursor-centered: the point under the cursor stays fixed during zoom operations
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)

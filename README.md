@@ -134,23 +134,36 @@ zig build test
 
 | Action | Input Binding |
 |--------|--------------|
+| Select element | Left-click on element (in selection mode) |
+| Deselect all | Left-click on empty canvas (in selection mode) |
+| Create/edit text | Double-click on canvas (in text creation mode) |
+| Exit text editing | `Escape` key (while editing) |
 | Pan canvas | Trackpad scroll (or mouse wheel) |
 | Zoom in at cursor | `Ctrl` + trackpad scroll up (or `Ctrl` + mouse wheel up) |
 | Zoom out at cursor | `Ctrl` + trackpad scroll down (or `Ctrl` + mouse wheel down) |
 | Toggle color scheme | `D` key |
 | Toggle grid | `G` key |
-| Create/edit text | Double-click on canvas |
-| Exit text editing | `Escape` key (while editing) |
+| Toggle bounding boxes (debug) | `B` key |
 | Quit application | `Escape` key (when not editing) or window close button |
 | Resize window | Drag window edges/corners |
 
 ### Details
 
+- **Tools**: The application has a tool system (toolbar UI coming later):
+  - **Selection Tool** (default): Click to select elements, shows blue bounding box
+  - **Text Creation Tool**: Double-click to create editable text (not accessible yet without toolbar)
+  - Elements are tested for hits using their bounding boxes
+  - Z-order: Elements drawn later appear on top and are hit-tested first
+- **Selection**: Click on any element to select it (blue bounding box appears), click empty space to deselect
 - **Panning**: Use trackpad scroll (two-finger swipe on touchpad) or mouse wheel to move around the infinite canvas
 - **Zooming**: Hold `Ctrl` and scroll with trackpad or mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
   - `Ctrl` + scroll up: Zoom in by 10%
   - `Ctrl` + scroll down: Zoom out by 10%
   - **Zoom range**: 1% to 10,000% (0.01x to 100x)
+- **Bounding Boxes**: Press `B` to toggle debug visualization of element bounding boxes:
+  - Shows red 1-pixel outlines around all world-space elements
+  - Useful for debugging hit detection and element positioning
+  - Off by default
 - **Grid**: Press `G` to toggle the grid on/off. Grid uses recursive subdivision with fading:
   - Major divisions at 150 world units (~6 per screen height at default zoom)
   - As you zoom in, minor divisions (5 per major) fade in smoothly
@@ -177,7 +190,8 @@ The application supports the following actions (bindings may be customizable in 
 4. **Zoom Out at Cursor** - Zoom out centered on cursor position (bound to Ctrl + scroll down)
 5. **Toggle Color Scheme** - Switch between light and dark modes (bound to D key)
 6. **Toggle Grid** - Show/hide the world-space grid (bound to G key)
-7. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
+7. **Toggle Bounding Boxes** - Show/hide debug bounding boxes (bound to B key)
+8. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
 
 ## Features
 

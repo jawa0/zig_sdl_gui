@@ -3,6 +3,7 @@ const math = @import("math.zig");
 const camera = @import("camera.zig");
 const sdl = @import("sdl.zig");
 const action = @import("action.zig");
+const tool_mod = @import("tool.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -11,6 +12,8 @@ const ActionParams = action.ActionParams;
 const PanParams = action.PanParams;
 const ZoomParams = action.ZoomParams;
 const TextEditParams = action.TextEditParams;
+const SelectParams = action.SelectParams;
+const Tool = tool_mod.Tool;
 
 pub const InputState = struct {
     mouse_x: f32 = 0,
@@ -30,7 +33,9 @@ pub const InputState = struct {
     /// Handle an SDL event and generate an action if applicable.
     /// Returns an action to be processed by the ActionHandler, or null if no action.
     /// is_editing parameter indicates if we're currently in text editing mode
-    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera, is_editing: bool) ?ActionParams {
+    /// current_tool indicates which tool is active
+    /// Note: Some events (like single clicks in selection mode) require additional processing in main.zig for hit testing
+    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera, is_editing: bool, current_tool: Tool) ?ActionParams {
         switch (event.type) {
             c.SDL_QUIT => return ActionParams{ .quit = {} },
 
@@ -50,6 +55,9 @@ pub const InputState = struct {
                     }
                     if (event.key.keysym.scancode == c.SDL_SCANCODE_G) {
                         return ActionParams{ .toggle_grid = {} };
+                    }
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_B) {
+                        return ActionParams{ .toggle_bounding_boxes = {} };
                     }
                 }
             },
@@ -98,7 +106,8 @@ pub const InputState = struct {
             },
 
             c.SDL_MOUSEBUTTONDOWN => {
-                if (event.button.button == c.SDL_BUTTON_LEFT) {
+                // Only handle double-click for text creation in text creation tool mode
+                if (event.button.button == c.SDL_BUTTON_LEFT and current_tool == .text_creation) {
                     const click_x = @as(f32, @floatFromInt(event.button.x));
                     const click_y = @as(f32, @floatFromInt(event.button.y));
                     const current_time = c.SDL_GetTicks();

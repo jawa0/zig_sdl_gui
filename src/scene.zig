@@ -16,6 +16,20 @@ pub const DrawDimensions = struct {
     h: i32,
 };
 
+/// Bounding box in world coordinates
+pub const BoundingBox = struct {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+
+    /// Test if a world-space point is inside this bounding box
+    pub fn containsWorld(self: BoundingBox, world_x: f32, world_y: f32) bool {
+        return world_x >= self.x and world_x <= self.x + self.w and
+               world_y >= self.y and world_y <= self.y + self.h;
+    }
+};
+
 pub const ElementType = enum {
     text_label,
     rectangle,
@@ -126,6 +140,7 @@ pub const Element = struct {
     space: CoordinateSpace,
     visible: bool,
     element_type: ElementType,
+    bounding_box: BoundingBox, // World-space bounding box
     data: union {
         text_label: TextLabel,
         rectangle: Rectangle,
@@ -166,11 +181,52 @@ pub const SceneGraph = struct {
         font_size: f32,
         color: c.SDL_Color,
         space: CoordinateSpace,
+        font: ?*c.TTF_Font,
     ) !u32 {
         const id = self.next_id;
         self.next_id += 1;
 
         const label = try TextLabel.init(self.allocator, text, font_size, color);
+
+        // Calculate bounding box in world coordinates
+        // Note: In world space (Y-up), text position is the TOP of the text,
+        // but since Y increases upward, the text extends downward (negative Y).
+        // So the bounding box bottom is at position.y - height.
+        const bbox = if (font) |f| blk: {
+            _ = c.TTF_SetFontSize(f, @intFromFloat(font_size));
+            var text_buf: [256]u8 = undefined;
+            const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{text}) catch {
+                // If text is too long, use approximate dimensions
+                const approx_h = font_size;
+                break :blk BoundingBox{
+                    .x = position.x,
+                    .y = position.y - approx_h, // Bottom of text in world space
+                    .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6, // Approximate
+                    .h = approx_h,
+                };
+            };
+
+            var text_w: c_int = 0;
+            var text_h: c_int = 0;
+            _ = c.TTF_SizeText(f, null_term_text.ptr, &text_w, &text_h);
+
+            const h = @as(f32, @floatFromInt(text_h));
+            break :blk BoundingBox{
+                .x = position.x,
+                .y = position.y - h, // Bottom of text in world space
+                .w = @floatFromInt(text_w),
+                .h = h,
+            };
+        } else blk: {
+            // No font available (e.g., in tests) - use approximate dimensions
+            const approx_h = font_size;
+            break :blk BoundingBox{
+                .x = position.x,
+                .y = position.y - approx_h, // Bottom of text in world space
+                .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6,
+                .h = approx_h,
+            };
+        };
 
         const element = Element{
             .id = id,
@@ -182,6 +238,7 @@ pub const SceneGraph = struct {
             .space = space,
             .visible = true,
             .element_type = .text_label,
+            .bounding_box = bbox,
             .data = .{ .text_label = label },
         };
 
@@ -203,6 +260,14 @@ pub const SceneGraph = struct {
 
         const rect = Rectangle.init(width, height, border_thickness, color);
 
+        // Calculate bounding box in world coordinates
+        const bbox = BoundingBox{
+            .x = position.x,
+            .y = position.y,
+            .w = width,
+            .h = height,
+        };
+
         const element = Element{
             .id = id,
             .transform = Transform{
@@ -213,6 +278,7 @@ pub const SceneGraph = struct {
             .space = space,
             .visible = true,
             .element_type = .rectangle,
+            .bounding_box = bbox,
             .data = .{ .rectangle = rect },
         };
 
@@ -253,6 +319,82 @@ pub const SceneGraph = struct {
         for (self.elements.items) |*elem| {
             if (elem.id == id) {
                 return elem;
+            }
+        }
+        return null;
+    }
+
+    /// Convert screen coordinates to world coordinates using the camera
+    pub fn screenToWorld(_: *SceneGraph, screen_pos: Vec2, cam: *const Camera) Vec2 {
+        return cam.screenToWorld(screen_pos);
+    }
+
+    /// Convert world coordinates to screen coordinates using the camera
+    pub fn worldToScreen(_: *SceneGraph, world_pos: Vec2, cam: *const Camera) Vec2 {
+        return cam.worldToScreen(world_pos);
+    }
+
+    /// Update an element's bounding box (call when element moves or scales)
+    pub fn updateElementBoundingBox(self: *SceneGraph, id: u32, font: *c.TTF_Font) void {
+        const elem = self.findElement(id) orelse return;
+
+        switch (elem.element_type) {
+            .text_label => {
+                const label = &elem.data.text_label;
+                _ = c.TTF_SetFontSize(font, @intFromFloat(label.font_size));
+
+                var text_buf: [256]u8 = undefined;
+                const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch {
+                    // Use approximate dimensions if text is too long
+                    const h = label.font_size;
+                    elem.bounding_box.x = elem.transform.position.x;
+                    elem.bounding_box.y = elem.transform.position.y - h; // Bottom in world space
+                    elem.bounding_box.w = label.font_size * @as(f32, @floatFromInt(label.text.len)) * 0.6;
+                    elem.bounding_box.h = h;
+                    return;
+                };
+
+                var text_w: c_int = 0;
+                var text_h: c_int = 0;
+                _ = c.TTF_SizeText(font, null_term_text.ptr, &text_w, &text_h);
+
+                // Update bounding box dimensions (position stays with transform)
+                // In world space (Y-up), text extends downward from position
+                const h = @as(f32, @floatFromInt(text_h));
+                elem.bounding_box.x = elem.transform.position.x;
+                elem.bounding_box.y = elem.transform.position.y - h; // Bottom in world space
+                elem.bounding_box.w = @floatFromInt(text_w);
+                elem.bounding_box.h = h;
+            },
+            .rectangle => {
+                const rect = &elem.data.rectangle;
+                elem.bounding_box.x = elem.transform.position.x;
+                elem.bounding_box.y = elem.transform.position.y;
+                elem.bounding_box.w = rect.width * elem.transform.scale.x;
+                elem.bounding_box.h = rect.height * elem.transform.scale.y;
+            },
+        }
+    }
+
+    /// Perform hit test at screen coordinates, returns element ID if hit (top-most element wins)
+    pub fn hitTest(self: *SceneGraph, screen_x: f32, screen_y: f32, cam: *const Camera) ?u32 {
+        // Convert screen coordinates to world coordinates
+        const world_pos = cam.screenToWorld(Vec2{ .x = screen_x, .y = screen_y });
+
+        // Iterate backwards (top to bottom in z-order)
+        var i: usize = self.elements.items.len;
+        while (i > 0) {
+            i -= 1;
+            const elem = &self.elements.items[i];
+            if (!elem.visible) continue;
+
+            // Only hit-test world-space elements for now
+            // (Screen-space elements like FPS counter shouldn't be selectable)
+            if (elem.space != .world) continue;
+
+            // Test against stored world-space bounding box
+            if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                return elem.id;
             }
         }
         return null;
@@ -395,8 +537,8 @@ test "SceneGraph.addTextLabel returns unique IDs" {
 
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
-    const id1 = try scene.addTextLabel("Test 1", Vec2{ .x = 0, .y = 0 }, 16, white, .world);
-    const id2 = try scene.addTextLabel("Test 2", Vec2{ .x = 10, .y = 10 }, 20, white, .screen);
+    const id1 = try scene.addTextLabel("Test 1", Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
+    const id2 = try scene.addTextLabel("Test 2", Vec2{ .x = 10, .y = 10 }, 20, white, .screen, null);
 
     try expectEqual(1, id1);
     try expectEqual(2, id2);
@@ -408,7 +550,7 @@ test "SceneGraph.addTextLabel stores correct data" {
     defer scene.deinit();
 
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const id = try scene.addTextLabel("Hello", Vec2{ .x = 100, .y = 200 }, 24, white, .world);
+    const id = try scene.addTextLabel("Hello", Vec2{ .x = 100, .y = 200 }, 24, white, .world, null);
 
     const elem = scene.findElement(id).?;
 
@@ -455,8 +597,8 @@ test "SceneGraph.removeElement removes correct element" {
 
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
-    const id1 = try scene.addTextLabel("First", Vec2{ .x = 0, .y = 0 }, 16, white, .world);
-    const id2 = try scene.addTextLabel("Second", Vec2{ .x = 10, .y = 10 }, 20, white, .world);
+    const id1 = try scene.addTextLabel("First", Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
+    const id2 = try scene.addTextLabel("Second", Vec2{ .x = 10, .y = 10 }, 20, white, .world, null);
 
     try expectEqual(2, scene.elements.items.len);
 
@@ -489,7 +631,7 @@ test "SceneGraph.addTextLabel allocates text copy" {
     {
         var text_buf: [20]u8 = undefined;
         const text = std.fmt.bufPrint(&text_buf, "Test {d}", .{42}) catch unreachable;
-        _ = try scene.addTextLabel(text, Vec2{ .x = 0, .y = 0 }, 16, white, .world);
+        _ = try scene.addTextLabel(text, Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
     }
 
     // Element should still have valid text after original goes out of scope
@@ -508,7 +650,7 @@ test "SceneGraph multiple add/remove operations" {
     for (0..5) |i| {
         var text_buf: [20]u8 = undefined;
         const text = std.fmt.bufPrint(&text_buf, "Element {d}", .{i}) catch unreachable;
-        ids[i] = try scene.addTextLabel(text, Vec2{ .x = 0, .y = 0 }, 16, white, .world);
+        ids[i] = try scene.addTextLabel(text, Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
     }
 
     try expectEqual(5, scene.elements.items.len);
@@ -532,7 +674,7 @@ test "Element visibility flag" {
     defer scene.deinit();
 
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 0 }, 16, white, .world);
+    const id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
 
     const elem = scene.findElement(id).?;
 
@@ -608,7 +750,7 @@ test "SceneGraph mixed elements (text and rectangles)" {
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const blue = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
 
-    const text_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 0 }, 16, white, .world);
+    const text_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 0 }, 16, white, .world, null);
     const rect_id = try scene.addRectangle(Vec2{ .x = 10, .y = 20 }, 100, 50, 2, blue, .world);
 
     try expectEqual(2, scene.elements.items.len);

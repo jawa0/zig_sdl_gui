@@ -3,12 +3,14 @@ const action = @import("action.zig");
 const camera = @import("camera.zig");
 const math = @import("math.zig");
 const color_scheme = @import("color_scheme.zig");
+const tool = @import("tool.zig");
 
 const Action = action.Action;
 const ActionParams = action.ActionParams;
 const Camera = camera.Camera;
 const Vec2 = math.Vec2;
 const SchemeType = color_scheme.SchemeType;
+const Tool = tool.Tool;
 
 /// Text editing state
 pub const TextEditState = struct {
@@ -32,7 +34,10 @@ pub const ActionHandler = struct {
     scheme_type: SchemeType = .light,
     scheme_changed: bool = false,
     grid_visible: bool = true,
+    bounding_boxes_visible: bool = false,
     text_edit: TextEditState = TextEditState{},
+    current_tool: Tool = .selection,
+    selected_element_id: ?u32 = null,
 
     pub fn init() ActionHandler {
         return ActionHandler{};
@@ -72,6 +77,10 @@ pub const ActionHandler = struct {
 
             .toggle_grid => {
                 self.grid_visible = !self.grid_visible;
+            },
+
+            .toggle_bounding_boxes => {
+                self.bounding_boxes_visible = !self.bounding_boxes_visible;
             },
 
             .begin_text_edit => |edit_params| {
@@ -129,6 +138,14 @@ pub const ActionHandler = struct {
                 }
 
                 self.text_edit.is_editing = false;
+            },
+
+            .select_element => |sel| {
+                self.selected_element_id = sel.element_id;
+            },
+
+            .deselect_all => {
+                self.selected_element_id = null;
             },
         }
 

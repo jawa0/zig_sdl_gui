@@ -6,6 +6,7 @@ const input = @import("input.zig");
 const text_cache = @import("text_cache.zig");
 const sdl = @import("sdl.zig");
 const action_handler = @import("action_handler.zig");
+const action = @import("action.zig");
 const color_scheme = @import("color_scheme.zig");
 const grid = @import("grid.zig");
 
@@ -34,17 +35,12 @@ fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Fon
     const base_font_size: f32 = 16.0;
     const line_text = "This is a line of text.";
     const line_spacing_world: f32 = 4.0; // World-space spacing
-    const border_thickness: f32 = 2.0; // World-space border thickness
-    const padding: f32 = 4.0; // World-space padding around text
 
-    // Get text dimensions at base font size for calculating rectangle size
+    // Get text dimensions at base font size
     _ = c.TTF_SetFontSize(font, @intFromFloat(base_font_size));
     var line_text_w: c_int = 0;
     var line_text_h: c_int = 0;
     _ = c.TTF_SizeText(font, line_text, &line_text_w, &line_text_h);
-
-    const rect_width = @as(f32, @floatFromInt(line_text_w)) + padding * 2.0;
-    const rect_height = @as(f32, @floatFromInt(line_text_h)) + padding * 2.0;
 
     // Calculate total height needed and create lines centered around origin
     const num_lines: i32 = 40;
@@ -57,20 +53,7 @@ fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Fon
         const y = start_y - @as(f32, @floatFromInt(i)) * line_height_world;
 
         // Calculate positions for rectangle (centered around text position)
-        const rect_x = -rect_width / 2.0;
-        const rect_y = y - padding;
-
-        // Add rectangle border
-        _ = try scene_graph.addRectangle(
-            Vec2{ .x = rect_x, .y = rect_y },
-            rect_width,
-            rect_height,
-            border_thickness,
-            colors.border,
-            .world,
-        );
-
-        // Add text label (offset by padding to center within rectangle)
+        // Add text label (without border rectangle)
         const text_x = -@as(f32, @floatFromInt(line_text_w)) / 2.0;
         _ = try scene_graph.addTextLabel(
             line_text,
@@ -78,6 +61,7 @@ fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Fon
             base_font_size,
             colors.text,
             .world,
+            font,
         );
     }
 
@@ -245,8 +229,26 @@ pub fn main() !void {
                 }
             }
 
+            // Handle mouse clicks based on current tool (when not editing text)
+            if (!action_mgr.text_edit.is_editing and event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
+                const click_x = @as(f32, @floatFromInt(event.button.x));
+                const click_y = @as(f32, @floatFromInt(event.button.y));
+
+                if (action_mgr.current_tool == .selection) {
+                    // Perform hit test (converts screen coords to world coords internally)
+                    if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
+                        // Element was clicked - select it
+                        _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{ .element_id = hit_id } }, &cam);
+                    } else {
+                        // Empty space clicked - deselect all
+                        _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                    }
+                }
+                // Text creation mode is handled by double-click in input.zig
+            }
+
             // Generate action from input event
-            if (input_state.handleEvent(&event, &cam, action_mgr.text_edit.is_editing)) |action_params| {
+            if (input_state.handleEvent(&event, &cam, action_mgr.text_edit.is_editing, action_mgr.current_tool)) |action_params| {
                 // Check if we're entering or leaving text edit mode to enable/disable text input
                 const was_editing = action_mgr.text_edit.is_editing;
 
@@ -294,6 +296,7 @@ pub fn main() !void {
                 16.0,
                 colors.text,
                 .world,
+                font,
             );
             action_mgr.text_edit.should_create_element = false; // Reset flag after creating element
         }
@@ -339,6 +342,7 @@ pub fn main() !void {
                 16.0,
                 colors.text,
                 .screen,
+                font,
             );
         }
 
@@ -353,6 +357,69 @@ pub fn main() !void {
 
         // Render all scene elements
         scene_graph.render(renderer, font, &cam);
+
+        // Render debug bounding boxes if enabled
+        if (action_mgr.bounding_boxes_visible) {
+            const debug_color = c.SDL_Color{ .r = 255, .g = 0, .b = 0, .a = 255 }; // Red
+            _ = c.SDL_SetRenderDrawColor(renderer, debug_color.r, debug_color.g, debug_color.b, debug_color.a);
+
+            for (scene_graph.elements.items) |*elem| {
+                if (!elem.visible) continue;
+                if (elem.space != .world) continue; // Only show world-space bounding boxes
+
+                // Convert world-space bounding box to screen coordinates
+                // In world space (Y-up): bbox.y is bottom, bbox.y + bbox.h is top
+                // For SDL rendering (Y-down): we need the top-left corner
+                const world_bbox = elem.bounding_box;
+                const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
+                const screen_pos = cam.worldToScreen(world_top_left);
+                const screen_w = world_bbox.w * cam.zoom;
+                const screen_h = world_bbox.h * cam.zoom;
+
+                const x: i32 = @intFromFloat(screen_pos.x);
+                const y: i32 = @intFromFloat(screen_pos.y);
+                const w: i32 = @intFromFloat(screen_w);
+                const h: i32 = @intFromFloat(screen_h);
+
+                var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
+                _ = c.SDL_RenderDrawRect(renderer, &rect);
+            }
+        }
+
+        // Render selection bounding box if an element is selected
+        if (action_mgr.selected_element_id) |sel_id| {
+            if (scene_graph.findElement(sel_id)) |elem| {
+                // Convert world-space bounding box to screen coordinates
+                // In world space (Y-up): bbox.y is bottom, bbox.y + bbox.h is top
+                // For SDL rendering (Y-down): we need the top-left corner
+                const world_bbox = elem.bounding_box;
+                const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
+                const screen_pos = cam.worldToScreen(world_top_left);
+                const screen_w = world_bbox.w * cam.zoom;
+                const screen_h = world_bbox.h * cam.zoom;
+
+                const selection_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Blue
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+
+                const border_thickness: f32 = 2.0;
+                const x: i32 = @intFromFloat(screen_pos.x);
+                const y: i32 = @intFromFloat(screen_pos.y);
+                const w: i32 = @intFromFloat(screen_w);
+                const h: i32 = @intFromFloat(screen_h);
+
+                // Draw rectangle border
+                var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = @intFromFloat(border_thickness) };
+                _ = c.SDL_RenderFillRect(renderer, &rect); // Top
+                rect.y = y + h - @as(i32, @intFromFloat(border_thickness));
+                _ = c.SDL_RenderFillRect(renderer, &rect); // Bottom
+                rect.y = y;
+                rect.w = @intFromFloat(border_thickness);
+                rect.h = h;
+                _ = c.SDL_RenderFillRect(renderer, &rect); // Left
+                rect.x = x + w - @as(i32, @intFromFloat(border_thickness));
+                _ = c.SDL_RenderFillRect(renderer, &rect); // Right
+            }
+        }
 
         // Render text editing cursor if in edit mode
         if (action_mgr.text_edit.is_editing) {
