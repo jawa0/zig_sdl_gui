@@ -84,6 +84,9 @@ pub const ActionHandler = struct {
             },
 
             .begin_text_edit => |edit_params| {
+                // Switch to text creation tool
+                self.current_tool = .text_creation;
+
                 // If we're already editing, finish the current text first
                 if (self.text_edit.is_editing and self.text_edit.text_len > 0) {
                     const text = self.text_edit.text_buffer[0..self.text_edit.text_len];
@@ -138,6 +141,9 @@ pub const ActionHandler = struct {
                 }
 
                 self.text_edit.is_editing = false;
+
+                // Switch back to selection tool
+                self.current_tool = .selection;
             },
 
             .select_element => |sel| {

@@ -134,10 +134,10 @@ zig build test
 
 | Action | Input Binding |
 |--------|--------------|
-| Select element | Left-click on element (in selection mode) |
-| Deselect all | Left-click on empty canvas (in selection mode) |
-| Create/edit text | Double-click on empty canvas (any mode) |
-| Exit text editing | `Escape` key (while editing) |
+| Select element | Left-click on element (in Selection tool) |
+| Deselect all | Left-click on empty canvas (in Selection tool) |
+| Switch to Text Creation tool | Double-click on empty canvas |
+| Exit text editing (back to Selection tool) | `Escape` key (while editing) |
 | Pan canvas | Trackpad scroll (or mouse wheel) |
 | Zoom in at cursor | `Ctrl` + trackpad scroll up (or `Ctrl` + mouse wheel up) |
 | Zoom out at cursor | `Ctrl` + trackpad scroll down (or `Ctrl` + mouse wheel down) |
@@ -151,7 +151,7 @@ zig build test
 
 - **Tools**: The application has a tool system (toolbar UI coming later):
   - **Selection Tool** (default): Click to select elements, shows blue bounding box
-  - **Text Creation Tool**: For creating text (not accessible yet without toolbar)
+  - **Text Creation Tool**: Activated by double-clicking blank canvas, returns to Selection tool when done
   - Elements are tested for hits using their bounding boxes
   - Z-order: Elements drawn later appear on top and are hit-tested first
 - **Selection**: Click on any element to select it (blue bounding box appears), click empty space to deselect
@@ -169,13 +169,14 @@ zig build test
   - As you zoom in, minor divisions (5 per major) fade in smoothly
   - Grid lines fade from background color to grid color based on zoom level
   - Recursively subdivides: minor lines become major lines as you zoom further
-- **Text Editing**: Double-click on empty canvas to create editable text (works in any tool mode):
+- **Text Editing**: Double-click on empty canvas to switch to Text Creation tool and start editing:
   - Double-clicking on an existing element will not start text editing (selection takes priority)
+  - Switches from Selection tool to Text Creation tool automatically
   - A blinking cursor appears at the click location
   - Type alphanumeric characters to add text
   - Press `Enter` to add a new line
   - Press `Backspace` to delete the previous character
-  - Press `Escape` to finish editing (creates permanent text element on canvas)
+  - Press `Escape` to finish editing (creates permanent text element and switches back to Selection tool)
   - Empty or whitespace-only text will not create an element
   - Text with content preserves all spacing (e.g., "  hello  " keeps the spaces)
 - **Color Schemes**: Press `D` to toggle between light and dark color schemes

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working with Git
+
+**IMPORTANT**: Do not commit changes until explicitly instructed by the user. Wait for the user to say "commit" or give similar explicit instruction before creating commits.
+
 ## Project Overview
 
 A Zig application using SDL2 and SDL2_ttf to render a double-buffered window at 60fps with FPS counter. Supports Linux/WSL and native Windows. macOS support is currently broken.
@@ -85,9 +89,12 @@ The application currently supports these user actions:
 4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
 5. **Toggle Color Scheme** - Switch between light and dark color schemes
 6. **Toggle Grid** - Show/hide the world-space grid overlay
-7. **Begin Text Edit** - Enter text editing mode at double-click location
-8. **End Text Edit** - Exit text editing mode
-9. **Resize Window** - Change window dimensions
+7. **Toggle Bounding Boxes** - Show/hide debug bounding box visualization
+8. **Begin Text Edit** - Switch to Text Creation tool and enter text editing mode at double-click location
+9. **End Text Edit** - Exit text editing mode and switch back to Selection tool
+10. **Select Element** - Select an element by clicking on it (Selection tool only)
+11. **Deselect All** - Deselect by clicking empty canvas (Selection tool only)
+12. **Resize Window** - Change window dimensions
 
 ### Current Input Bindings
 
@@ -121,6 +128,7 @@ The application currently supports these user actions:
 - Tool system:
   - Two tools: Selection (default) and TextCreation
   - Current tool tracked in ActionHandler (current_tool field)
+  - Tool switching: Double-click blank canvas switches to TextCreation, Escape switches back to Selection
   - Tool determines mouse click behavior
   - No toolbar UI yet - will be added later
 - Selection system:
