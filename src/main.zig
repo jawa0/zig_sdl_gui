@@ -356,11 +356,17 @@ pub fn main() !void {
 
         // Render text editing cursor if in edit mode
         if (action_mgr.text_edit.is_editing) {
+            // Calculate the font size scaled by zoom (canonical size is 16pt at 100% zoom)
+            const base_font_size: f32 = 16.0;
+            const target_font_size = base_font_size * cam.zoom;
+            const font_size_int: c_int = @intFromFloat(target_font_size);
+            const line_height = target_font_size;
+
             // Render the text being edited (split by newlines)
             if (action_mgr.text_edit.text_len > 0) {
                 const edit_text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
                 const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
-                _ = c.TTF_SetFontSize(font, 16);
+                _ = c.TTF_SetFontSize(font, font_size_int);
 
                 // Split text by newlines and render each line
                 var line_y: f32 = screen_pos.y;
@@ -392,7 +398,7 @@ pub fn main() !void {
                         }
 
                         // Move to next line
-                        line_y += 16; // Line height
+                        line_y += line_height;
                         line_start = i + 1;
                     }
                 }
@@ -421,21 +427,21 @@ pub fn main() !void {
                         }
                     }
 
-                    // Measure the last line width
+                    // Measure the last line width (with zoomed font size)
                     if (last_line_start < edit_text.len) {
                         const last_line = edit_text[last_line_start..];
                         const last_line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{last_line}) catch "";
                         var text_w: c_int = 0;
-                        _ = c.TTF_SetFontSize(font, 16);
+                        _ = c.TTF_SetFontSize(font, font_size_int);
                         _ = c.TTF_SizeText(font, last_line_z.ptr, &text_w, null);
                         cursor_x += @floatFromInt(text_w);
                     }
 
                     // Position cursor at the correct line
-                    cursor_y += @as(f32, @floatFromInt(line_count)) * 16.0;
+                    cursor_y += @as(f32, @floatFromInt(line_count)) * line_height;
                 }
 
-                const cursor_height: i32 = 16;
+                const cursor_height: i32 = @intFromFloat(line_height);
                 _ = c.SDL_SetRenderDrawColor(renderer, colors.text.r, colors.text.g, colors.text.b, colors.text.a);
                 const cursor_y_int: i32 = @intFromFloat(cursor_y);
                 _ = c.SDL_RenderDrawLine(
