@@ -261,9 +261,11 @@ pub const SceneGraph = struct {
         const rect = Rectangle.init(width, height, border_thickness, color);
 
         // Calculate bounding box in world coordinates
+        // Same as text: position.y is the TOP of the element in world space (Y-up)
+        // The element extends downward, so bottom is at position.y - height
         const bbox = BoundingBox{
             .x = position.x,
-            .y = position.y,
+            .y = position.y - height,  // Bottom of rectangle in world space
             .w = width,
             .h = height,
         };
@@ -368,10 +370,11 @@ pub const SceneGraph = struct {
             },
             .rectangle => {
                 const rect = &elem.data.rectangle;
+                const h = rect.height * elem.transform.scale.y;
                 elem.bounding_box.x = elem.transform.position.x;
-                elem.bounding_box.y = elem.transform.position.y;
+                elem.bounding_box.y = elem.transform.position.y - h;  // Bottom in world space
                 elem.bounding_box.w = rect.width * elem.transform.scale.x;
-                elem.bounding_box.h = rect.height * elem.transform.scale.y;
+                elem.bounding_box.h = h;
             },
         }
     }
