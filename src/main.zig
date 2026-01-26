@@ -224,6 +224,8 @@ pub fn main() !void {
                 if (event.window.event == c.SDL_WINDOWEVENT_SIZE_CHANGED) {
                     window_width = event.window.data1;
                     window_height = event.window.data2;
+                    cam.viewport_width = @floatFromInt(window_width);
+                    cam.viewport_height = @floatFromInt(window_height);
                     fps_needs_update = true;
                 }
             }
