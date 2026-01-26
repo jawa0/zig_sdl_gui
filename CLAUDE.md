@@ -59,7 +59,8 @@ zig build -Doptimize=ReleaseFast
 
 - `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
-- `src/grid.zig` - Grid rendering system with configurable major/minor divisions
+- `src/grid.zig` - Grid rendering system with recursive subdivision and zoom-based fading
+- `src/math.zig` - Math utilities including Vec2, Transform, lerp, and clamp functions
 - `src/action.zig` - Action enum and parameters for input indirection
 - `src/action_handler.zig` - Processes actions and updates application state
 - `src/input.zig` - Input handling that returns actions instead of directly manipulating state
@@ -112,8 +113,14 @@ The application currently supports these user actions:
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
 - Zoom range is constrained to 25%-400% (enforced in `camera.zig`)
-- Grid spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0), grid is square
-- Grid rendering: dynamically calculated based on visible world bounds, drawn with SDL_RenderDrawLine
+- Grid system: Recursive subdivision with zoom-based fading
+  - Base spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0)
+  - Minor divisions: 5 per major division (30, 6, 1.2, ... world units)
+  - Fade logic: Grid lines fade in from background color to grid color as zoom increases
+  - Fade thresholds: Lines invisible below 20px spacing, fully visible at 100px spacing
+  - Color interpolation: Uses linear interpolation (lerp) between background and grid colors
+  - Recursive rendering: Renders from finest to coarsest levels for proper blending
+  - Performance: Only renders visible grid lines, stops when spacing exceeds viewport by 10x
 - Window resize updates FPS/status line position to stay anchored to right edge
 - Color scheme changes regenerate cached text elements to update colors
 

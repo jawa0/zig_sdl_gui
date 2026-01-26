@@ -288,7 +288,7 @@ pub fn main() !void {
 
         // Render grid (if visible)
         if (action_mgr.grid_visible) {
-            world_grid.render(renderer, &cam, colors.grid);
+            world_grid.render(renderer, &cam, colors.grid, colors.background);
         }
 
         // Render all scene elements

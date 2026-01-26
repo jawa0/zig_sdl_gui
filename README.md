@@ -149,7 +149,11 @@ zig build test
   - `Ctrl` + scroll up: Zoom in by 10%
   - `Ctrl` + scroll down: Zoom out by 10%
   - **Zoom range**: 25% to 400%
-- **Grid**: Press `G` to toggle the grid on/off. Grid shows major divisions at 150 world units (approximately 6 divisions per screen height at default zoom)
+- **Grid**: Press `G` to toggle the grid on/off. Grid uses recursive subdivision with fading:
+  - Major divisions at 150 world units (~6 per screen height at default zoom)
+  - As you zoom in, minor divisions (5 per major) fade in smoothly
+  - Grid lines fade from background color to grid color based on zoom level
+  - Recursively subdivides: minor lines become major lines as you zoom further
 - **Color Schemes**: Press `D` to toggle between light and dark color schemes
 - **Resizing**: Window is resizable; status line anchors to the right edge of the window
 

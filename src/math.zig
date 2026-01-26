@@ -40,6 +40,19 @@ pub const Vec2 = struct {
     }
 };
 
+/// Linear interpolation between two values
+/// t = 0 returns a, t = 1 returns b
+pub fn lerp(a: f32, b: f32, t: f32) f32 {
+    return a + (b - a) * t;
+}
+
+/// Clamp a value between min and max
+pub fn clamp(value: f32, min: f32, max: f32) f32 {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
 pub const Transform = struct {
     position: Vec2,
     rotation: f32, // radians
