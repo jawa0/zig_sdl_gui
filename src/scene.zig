@@ -799,3 +799,173 @@ test "DrawDimensions type" {
     try expectEqual(100, dims.w);
     try expectEqual(50, dims.h);
 }
+
+test "BoundingBox.containsWorld - basic containment" {
+    const bbox = BoundingBox{
+        .x = 10,
+        .y = 20,
+        .w = 100,
+        .h = 50,
+    };
+
+    // Points inside the box
+    try expect(bbox.containsWorld(10, 20)); // Bottom-left corner
+    try expect(bbox.containsWorld(110, 20)); // Bottom-right corner
+    try expect(bbox.containsWorld(10, 70)); // Top-left corner
+    try expect(bbox.containsWorld(110, 70)); // Top-right corner
+    try expect(bbox.containsWorld(60, 45)); // Center
+
+    // Points outside the box
+    try expect(!bbox.containsWorld(9, 45)); // Left of box
+    try expect(!bbox.containsWorld(111, 45)); // Right of box
+    try expect(!bbox.containsWorld(60, 19)); // Below box (Y-up: smaller Y)
+    try expect(!bbox.containsWorld(60, 71)); // Above box (Y-up: larger Y)
+}
+
+test "Text label bounding box in Y-up world space" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Add text at position (100, 200) with approximate height of 16
+    const id = try scene.addTextLabel("Test", Vec2{ .x = 100, .y = 200 }, 16, white, .world, null);
+    const elem = scene.findElement(id).?;
+
+    // In Y-up world space, position.y (200) should be the TOP of the text
+    // The bounding box should extend downward (negative Y direction)
+    // So bbox.y + bbox.h should equal position.y
+
+    const bbox = elem.bounding_box;
+
+    // Verify bounding box top equals element position.y
+    const bbox_top = bbox.y + bbox.h;
+    try expectEqual(200, bbox_top);
+
+    // Verify bounding box bottom is below the top (smaller Y value in Y-up)
+    try expect(bbox.y < bbox_top);
+
+    // Verify the height is reasonable (approximate font size)
+    try expectEqual(16, bbox.h);
+
+    // Verify the bottom is at position.y - height
+    try expectEqual(200 - 16, bbox.y);
+
+    // Test hit detection: point at element position should be inside bbox
+    try expect(bbox.containsWorld(100, 200));
+
+    // Point just above element position (larger Y) should be outside
+    try expect(!bbox.containsWorld(100, 201));
+
+    // Point at bottom of text (position.y - height) should be inside
+    try expect(bbox.containsWorld(100, 200 - 16));
+
+    // Point just below bottom (smaller Y) should be outside
+    try expect(!bbox.containsWorld(100, 200 - 17));
+}
+
+test "Rectangle bounding box in Y-up world space" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Add rectangle at position (100, 200) with width=50, height=30
+    const id = try scene.addRectangle(Vec2{ .x = 100, .y = 200 }, 50, 30, 2, white, .world);
+    const elem = scene.findElement(id).?;
+
+    // In Y-up world space, position.y (200) should be the TOP of the rectangle
+    // The bounding box should extend downward (negative Y direction)
+
+    const bbox = elem.bounding_box;
+
+    // Verify bounding box top equals element position.y
+    const bbox_top = bbox.y + bbox.h;
+    try expectEqual(200, bbox_top);
+
+    // Verify bounding box bottom is at position.y - height
+    try expectEqual(200 - 30, bbox.y);
+
+    // Verify dimensions
+    try expectEqual(50, bbox.w);
+    try expectEqual(30, bbox.h);
+
+    // Test hit detection: point at element position (top-left corner) should be inside
+    try expect(bbox.containsWorld(100, 200));
+
+    // Point just above top (larger Y) should be outside
+    try expect(!bbox.containsWorld(100, 201));
+
+    // Point at bottom-left corner should be inside
+    try expect(bbox.containsWorld(100, 170));
+
+    // Point just below bottom (smaller Y) should be outside
+    try expect(!bbox.containsWorld(100, 169));
+
+    // Point at top-right corner should be inside
+    try expect(bbox.containsWorld(150, 200));
+
+    // Point just right of rectangle should be outside
+    try expect(!bbox.containsWorld(151, 200));
+}
+
+test "Text and rectangle bounding boxes are consistent" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Create text and rectangle at the same position with same height
+    const text_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 100 }, 20, white, .world, null);
+    const rect_id = try scene.addRectangle(Vec2{ .x = 0, .y = 100 }, 50, 20, 1, white, .world);
+
+    const text_elem = scene.findElement(text_id).?;
+    const rect_elem = scene.findElement(rect_id).?;
+
+    // Both should have the same top (y + h)
+    const text_top = text_elem.bounding_box.y + text_elem.bounding_box.h;
+    const rect_top = rect_elem.bounding_box.y + rect_elem.bounding_box.h;
+    try expectEqual(100, text_top);
+    try expectEqual(100, rect_top);
+
+    // Both should have the same bottom (y)
+    const text_bottom = text_elem.bounding_box.y;
+    const rect_bottom = rect_elem.bounding_box.y;
+    try expectEqual(100 - 20, text_bottom);
+    try expectEqual(100 - 20, rect_bottom);
+
+    // Both should have height of 20
+    try expectEqual(20, text_elem.bounding_box.h);
+    try expectEqual(20, rect_elem.bounding_box.h);
+}
+
+test "Bounding box hit testing for overlapping elements" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Create two rectangles, one overlapping the other
+    // First rectangle: position (0, 100), size 50x50
+    const id1 = try scene.addRectangle(Vec2{ .x = 0, .y = 100 }, 50, 50, 1, white, .world);
+
+    // Second rectangle: position (25, 75), size 50x50 (overlaps first)
+    const id2 = try scene.addRectangle(Vec2{ .x = 25, .y = 75 }, 50, 50, 1, white, .world);
+
+    // Point at (30, 60) should be inside second rectangle only
+    // Second rectangle spans x: [25, 75], y: [25, 75]
+    const elem2 = scene.findElement(id2).?;
+    try expect(elem2.bounding_box.containsWorld(30, 60));
+
+    // First rectangle spans x: [0, 50], y: [50, 100]
+    const elem1 = scene.findElement(id1).?;
+    try expect(!elem1.bounding_box.containsWorld(30, 60));
+
+    // Point at (40, 90) should be inside first rectangle only
+    try expect(elem1.bounding_box.containsWorld(40, 90));
+    try expect(!elem2.bounding_box.containsWorld(40, 90));
+
+    // Point at (30, 70) should be inside both (overlapping region)
+    try expect(elem1.bounding_box.containsWorld(30, 70));
+    try expect(elem2.bounding_box.containsWorld(30, 70));
+}
