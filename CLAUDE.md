@@ -59,6 +59,11 @@ zig build -Doptimize=ReleaseFast
 
 - `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
+- `src/grid.zig` - Grid rendering system with configurable major/minor divisions
+- `src/action.zig` - Action enum and parameters for input indirection
+- `src/action_handler.zig` - Processes actions and updates application state
+- `src/input.zig` - Input handling that returns actions instead of directly manipulating state
+- `src/color_scheme.zig` - Light and dark color scheme definitions
 - `libs/SDL2/` - Windows SDL2 libraries (headers, .lib, .dll)
 - `libs/SDL2_ttf/` - Windows SDL2_ttf libraries (headers, .lib, .dll)
 - `assets/fonts/` - JetBrains Mono font for text rendering
@@ -76,17 +81,19 @@ The application currently supports these user actions:
 3. **Zoom In at Cursor** - Zoom in 10% centered on cursor position
 4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
 5. **Toggle Color Scheme** - Switch between light and dark color schemes
-6. **Resize Window** - Change window dimensions
+6. **Toggle Grid** - Show/hide the world-space grid overlay
+7. **Resize Window** - Change window dimensions
 
 ### Current Input Bindings
 
 | Action | Input Binding | Implementation |
 |--------|--------------|----------------|
-| Quit Application | Escape key or window close | `input.zig:36-38` |
-| Toggle Color Scheme | D key | `input.zig:39-41` |
-| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:60-66` |
-| Zoom In at Cursor | Ctrl + scroll up | `input.zig:49-58` |
-| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:49-58` |
+| Quit Application | Escape key or window close | `input.zig:31-33` |
+| Toggle Color Scheme | D key | `input.zig:34-36` |
+| Toggle Grid | G key | `input.zig:37-39` |
+| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:67-73` |
+| Zoom In at Cursor | Ctrl + scroll up | `input.zig:56-65` |
+| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:56-65` |
 | Resize Window | Drag window edges/corners | SDL window event |
 
 ### Input Handling Architecture
@@ -105,6 +112,8 @@ The application currently supports these user actions:
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
 - Zoom range is constrained to 25%-400% (enforced in `camera.zig`)
+- Grid spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0), grid is square
+- Grid rendering: dynamically calculated based on visible world bounds, drawn with SDL_RenderDrawLine
 - Window resize updates FPS/status line position to stay anchored to right edge
 - Color scheme changes regenerate cached text elements to update colors
 

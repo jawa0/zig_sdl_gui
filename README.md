@@ -138,6 +138,7 @@ zig build test
 | Zoom in at cursor | `Ctrl` + trackpad scroll up (or `Ctrl` + mouse wheel up) |
 | Zoom out at cursor | `Ctrl` + trackpad scroll down (or `Ctrl` + mouse wheel down) |
 | Toggle color scheme | `D` key |
+| Toggle grid | `G` key |
 | Quit application | `Escape` key or window close button |
 | Resize window | Drag window edges/corners |
 
@@ -148,6 +149,7 @@ zig build test
   - `Ctrl` + scroll up: Zoom in by 10%
   - `Ctrl` + scroll down: Zoom out by 10%
   - **Zoom range**: 25% to 400%
+- **Grid**: Press `G` to toggle the grid on/off. Grid shows major divisions at 150 world units (approximately 6 divisions per screen height at default zoom)
 - **Color Schemes**: Press `D` to toggle between light and dark color schemes
 - **Resizing**: Window is resizable; status line anchors to the right edge of the window
 
@@ -160,7 +162,8 @@ The application supports the following actions (bindings may be customizable in 
 3. **Zoom In at Cursor** - Zoom in centered on cursor position (bound to Ctrl + scroll up)
 4. **Zoom Out at Cursor** - Zoom out centered on cursor position (bound to Ctrl + scroll down)
 5. **Toggle Color Scheme** - Switch between light and dark modes (bound to D key)
-6. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
+6. **Toggle Grid** - Show/hide the world-space grid (bound to G key)
+7. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
 
 ## Features
 

@@ -9,6 +9,7 @@ pub const Action = enum {
     zoom_in,
     zoom_out,
     toggle_color_scheme,
+    toggle_grid,
     // Future actions can be added here without changing input handling code
 };
 
@@ -19,6 +20,7 @@ pub const ActionParams = union(Action) {
     zoom_in: ZoomParams,
     zoom_out: ZoomParams,
     toggle_color_scheme: void,
+    toggle_grid: void,
 };
 
 pub const PanParams = struct {

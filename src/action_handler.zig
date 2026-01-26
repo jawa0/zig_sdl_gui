@@ -16,6 +16,7 @@ pub const ActionHandler = struct {
     should_quit: bool = false,
     scheme_type: SchemeType = .light,
     scheme_changed: bool = false,
+    grid_visible: bool = true,
 
     pub fn init() ActionHandler {
         return ActionHandler{};
@@ -50,6 +51,10 @@ pub const ActionHandler = struct {
             .toggle_color_scheme => {
                 self.scheme_type = color_scheme.ColorScheme.toggle(self.scheme_type);
                 self.scheme_changed = true;
+            },
+
+            .toggle_grid => {
+                self.grid_visible = !self.grid_visible;
             },
         }
 

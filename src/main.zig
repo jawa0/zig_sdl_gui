@@ -7,6 +7,7 @@ const text_cache = @import("text_cache.zig");
 const sdl = @import("sdl.zig");
 const action_handler = @import("action_handler.zig");
 const color_scheme = @import("color_scheme.zig");
+const grid = @import("grid.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -14,6 +15,7 @@ const SceneGraph = scene.SceneGraph;
 const InputState = input.InputState;
 const ActionHandler = action_handler.ActionHandler;
 const ColorScheme = color_scheme.ColorScheme;
+const Grid = grid.Grid;
 const c = sdl.c;
 
 const WINDOW_WIDTH = 1400;
@@ -177,6 +179,9 @@ pub fn main() !void {
     var scene_graph = SceneGraph.init(allocator);
     defer scene_graph.deinit();
 
+    // Initialize grid
+    const world_grid = Grid{};
+
     // Initialize input state and action handler
     var input_state = InputState.init();
     var action_mgr = ActionHandler.init();
@@ -280,6 +285,11 @@ pub fn main() !void {
         // Clear screen with current color scheme background
         _ = c.SDL_SetRenderDrawColor(renderer, colors.background.r, colors.background.g, colors.background.b, colors.background.a);
         _ = c.SDL_RenderClear(renderer);
+
+        // Render grid (if visible)
+        if (action_mgr.grid_visible) {
+            world_grid.render(renderer, &cam, colors.grid);
+        }
 
         // Render all scene elements
         scene_graph.render(renderer, font, &cam);

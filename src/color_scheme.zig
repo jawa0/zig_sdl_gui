@@ -15,6 +15,7 @@ pub const ColorScheme = struct {
     rect_red: c.SDL_Color,
     rect_green: c.SDL_Color,
     rect_yellow: c.SDL_Color,
+    grid: c.SDL_Color,
 
     /// Get the color scheme for the given type
     pub fn get(scheme_type: SchemeType) ColorScheme {
@@ -26,6 +27,7 @@ pub const ColorScheme = struct {
                 .rect_red = c.SDL_Color{ .r = 255, .g = 50, .b = 50, .a = 255 },
                 .rect_green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 },
                 .rect_yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 },
+                .grid = c.SDL_Color{ .r = 180, .g = 180, .b = 180, .a = 255 }, // Medium grey
             },
             .dark => ColorScheme{
                 .background = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 }, // Black
@@ -34,6 +36,7 @@ pub const ColorScheme = struct {
                 .rect_red = c.SDL_Color{ .r = 255, .g = 50, .b = 50, .a = 255 },
                 .rect_green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 },
                 .rect_yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 },
+                .grid = c.SDL_Color{ .r = 40, .g = 40, .b = 40, .a = 255 }, // Dark grey
             },
         };
     }
