@@ -5,9 +5,7 @@ const std = @import("std");
 /// enabling rebindable controls and future scripting support.
 pub const Action = enum {
     quit,
-    pan_start,
     pan_move,
-    pan_end,
     zoom_in,
     zoom_out,
     toggle_color_scheme,
@@ -17,9 +15,7 @@ pub const Action = enum {
 /// Parameters for actions that require additional data
 pub const ActionParams = union(Action) {
     quit: void,
-    pan_start: PanParams,
     pan_move: PanParams,
-    pan_end: void,
     zoom_in: ZoomParams,
     zoom_out: ZoomParams,
     toggle_color_scheme: void,

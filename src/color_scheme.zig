@@ -20,7 +20,7 @@ pub const ColorScheme = struct {
     pub fn get(scheme_type: SchemeType) ColorScheme {
         return switch (scheme_type) {
             .light => ColorScheme{
-                .background = c.SDL_Color{ .r = 248, .g = 246, .b = 240, .a = 255 }, // Off-white paper
+                .background = c.SDL_Color{ .r = 242, .g = 242, .b = 242, .a = 255 }, // Light grey
                 .text = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 }, // Black
                 .border = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }, // Light blue
                 .rect_red = c.SDL_Color{ .r = 255, .g = 50, .b = 50, .a = 255 },

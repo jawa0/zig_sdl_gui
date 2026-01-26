@@ -134,19 +134,21 @@ zig build test
 
 | Action | Input Binding |
 |--------|--------------|
-| Pan canvas | Left mouse button drag |
-| Zoom in at cursor | Mouse wheel up |
-| Zoom out at cursor | Mouse wheel down |
+| Pan canvas | Trackpad scroll (or mouse wheel) |
+| Zoom in at cursor | `Ctrl` + trackpad scroll up (or `Ctrl` + mouse wheel up) |
+| Zoom out at cursor | `Ctrl` + trackpad scroll down (or `Ctrl` + mouse wheel down) |
+| Toggle color scheme | `D` key |
 | Quit application | `Escape` key or window close button |
 | Resize window | Drag window edges/corners |
 
 ### Details
 
-- **Panning**: Click and drag with the left mouse button to move around the infinite canvas
-- **Zooming**: Scroll the mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
-  - Mouse wheel up: Zoom in by 10%
-  - Mouse wheel down: Zoom out by 10%
+- **Panning**: Use trackpad scroll (two-finger swipe on touchpad) or mouse wheel to move around the infinite canvas
+- **Zooming**: Hold `Ctrl` and scroll with trackpad or mouse wheel to zoom in/out. The zoom is centered on the cursor position, keeping the point under your cursor fixed during the zoom
+  - `Ctrl` + scroll up: Zoom in by 10%
+  - `Ctrl` + scroll down: Zoom out by 10%
   - **Zoom range**: 25% to 400%
+- **Color Schemes**: Press `D` to toggle between light and dark color schemes
 - **Resizing**: Window is resizable; status line anchors to the right edge of the window
 
 ### All User Actions
@@ -154,10 +156,11 @@ zig build test
 The application supports the following actions (bindings may be customizable in the future):
 
 1. **Quit Application** - Exit the application (bound to Escape key or window close)
-2. **Pan Canvas** - Move the camera view around the canvas (bound to left-click drag)
-3. **Zoom In at Cursor** - Zoom in centered on cursor position (bound to mouse wheel up)
-4. **Zoom Out at Cursor** - Zoom out centered on cursor position (bound to mouse wheel down)
-5. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
+2. **Pan Canvas** - Move the camera view around the canvas (bound to trackpad/mouse wheel scroll)
+3. **Zoom In at Cursor** - Zoom in centered on cursor position (bound to Ctrl + scroll up)
+4. **Zoom Out at Cursor** - Zoom out centered on cursor position (bound to Ctrl + scroll down)
+5. **Toggle Color Scheme** - Switch between light and dark modes (bound to D key)
+6. **Resize Window** - Change window dimensions (bound to window edge/corner drag)
 
 ## Features
 

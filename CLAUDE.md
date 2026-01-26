@@ -75,35 +75,38 @@ The application currently supports these user actions:
 2. **Pan Canvas** - Move the camera view around the infinite canvas
 3. **Zoom In at Cursor** - Zoom in 10% centered on cursor position
 4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
-5. **Resize Window** - Change window dimensions
+5. **Toggle Color Scheme** - Switch between light and dark color schemes
+6. **Resize Window** - Change window dimensions
 
 ### Current Input Bindings
 
 | Action | Input Binding | Implementation |
 |--------|--------------|----------------|
-| Quit Application | Escape key or window close | `input.zig:30, 32-35` |
-| Pan Canvas | Left mouse button drag | `input.zig:55-65` |
-| Zoom In at Cursor | Mouse wheel up | `input.zig:83-96` |
-| Zoom Out at Cursor | Mouse wheel down | `input.zig:83-96` |
-| Resize Window | Drag window edges/corners | `main.zig:205-210` |
+| Quit Application | Escape key or window close | `input.zig:36-38` |
+| Toggle Color Scheme | D key | `input.zig:39-41` |
+| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:60-66` |
+| Zoom In at Cursor | Ctrl + scroll up | `input.zig:49-58` |
+| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:49-58` |
+| Resize Window | Drag window edges/corners | SDL window event |
 
 ### Input Handling Architecture
 
-- **`src/input.zig`** - `InputState` struct with `handleEvent()` method processes most SDL events
-  - Handles keyboard (Escape), mouse motion, mouse buttons, mouse wheel
-  - Maintains drag state with 3-pixel threshold before panning starts
-  - Applies camera transformations directly via `Camera` API
-- **`src/main.zig`** - Main event loop also handles window-specific events (resize)
-- **Future**: Plan to add action enum and indirection layer to separate actions from bindings, enabling:
-  - Rebindable controls
-  - Action scripting support
+- **`src/input.zig`** - `InputState` struct with `handleEvent()` method processes SDL events and returns `ActionParams`
+  - Handles keyboard (Escape, D for color toggle), mouse motion, mouse wheel
+  - Checks for Ctrl modifier to distinguish pan (scroll) from zoom (Ctrl+scroll)
+  - Returns action parameters to be processed by `ActionHandler`
+- **`src/action.zig`** - Defines `Action` enum and `ActionParams` union for action indirection
+- **`src/action_handler.zig`** - `ActionHandler` struct processes actions and updates application state
+- **`src/main.zig`** - Main event loop coordinates input handling and action processing
 
 ### Implementation Notes
 
 - Zoom is cursor-centered: the point under the cursor stays fixed during zoom operations
-- Pan uses drag detection with 3-pixel threshold to distinguish clicks from drags
+- Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
+- Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
 - Zoom range is constrained to 25%-400% (enforced in `camera.zig`)
 - Window resize updates FPS/status line position to stay anchored to right edge
+- Color scheme changes regenerate cached text elements to update colors
 
 ## Platform Notes
 

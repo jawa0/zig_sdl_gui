@@ -33,16 +33,8 @@ pub const ActionHandler = struct {
                 return true;
             },
 
-            .pan_start => {
-                // Pan start is tracked in InputState, no camera update needed
-            },
-
             .pan_move => |p| {
                 cam.pan(Vec2{ .x = p.delta_x, .y = p.delta_y });
-            },
-
-            .pan_end => {
-                // Pan end is tracked in InputState, no camera update needed
             },
 
             .zoom_in => |z| {
