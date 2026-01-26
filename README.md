@@ -139,7 +139,9 @@ zig build test
 | Zoom out at cursor | `Ctrl` + trackpad scroll down (or `Ctrl` + mouse wheel down) |
 | Toggle color scheme | `D` key |
 | Toggle grid | `G` key |
-| Quit application | `Escape` key or window close button |
+| Create/edit text | Double-click on canvas |
+| Exit text editing | `Escape` key (while editing) |
+| Quit application | `Escape` key (when not editing) or window close button |
 | Resize window | Drag window edges/corners |
 
 ### Details
@@ -154,6 +156,14 @@ zig build test
   - As you zoom in, minor divisions (5 per major) fade in smoothly
   - Grid lines fade from background color to grid color based on zoom level
   - Recursively subdivides: minor lines become major lines as you zoom further
+- **Text Editing**: Double-click anywhere on the canvas to create editable text:
+  - A blinking cursor appears at the click location
+  - Type alphanumeric characters to add text
+  - Press `Enter` to add a new line
+  - Press `Backspace` to delete the previous character
+  - Press `Escape` to finish editing (creates permanent text element on canvas)
+  - Empty or whitespace-only text will not create an element
+  - Text with content preserves all spacing (e.g., "  hello  " keeps the spaces)
 - **Color Schemes**: Press `D` to toggle between light and dark color schemes
 - **Resizing**: Window is resizable; status line anchors to the right edge of the window
 

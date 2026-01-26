@@ -211,11 +211,56 @@ pub fn main() !void {
 
         // Handle events
         while (c.SDL_PollEvent(&event) != 0) {
+            // Handle text input when in editing mode
+            if (action_mgr.text_edit.is_editing) {
+                if (event.type == c.SDL_TEXTINPUT) {
+                    // Add typed characters to buffer
+                    const text = std.mem.sliceTo(&event.text.text, 0);
+                    const remaining = action_mgr.text_edit.text_buffer.len - action_mgr.text_edit.text_len;
+                    const to_copy = @min(text.len, remaining);
+                    if (to_copy > 0) {
+                        @memcpy(action_mgr.text_edit.text_buffer[action_mgr.text_edit.text_len..][0..to_copy], text[0..to_copy]);
+                        action_mgr.text_edit.text_len += to_copy;
+                        action_mgr.text_edit.cursor_pos = action_mgr.text_edit.text_len;
+                    }
+                    continue;
+                }
+                if (event.type == c.SDL_KEYDOWN) {
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_BACKSPACE) {
+                        if (action_mgr.text_edit.cursor_pos > 0) {
+                            action_mgr.text_edit.cursor_pos -= 1;
+                            action_mgr.text_edit.text_len -= 1;
+                        }
+                        continue;
+                    }
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_RETURN) {
+                        // Add newline
+                        if (action_mgr.text_edit.text_len < action_mgr.text_edit.text_buffer.len) {
+                            action_mgr.text_edit.text_buffer[action_mgr.text_edit.text_len] = '\n';
+                            action_mgr.text_edit.text_len += 1;
+                            action_mgr.text_edit.cursor_pos = action_mgr.text_edit.text_len;
+                        }
+                        continue;
+                    }
+                }
+            }
+
             // Generate action from input event
-            if (input_state.handleEvent(&event, &cam)) |action_params| {
+            if (input_state.handleEvent(&event, &cam, action_mgr.text_edit.is_editing)) |action_params| {
+                // Check if we're entering or leaving text edit mode to enable/disable text input
+                const was_editing = action_mgr.text_edit.is_editing;
+
                 // Process the action
                 if (action_mgr.handle(action_params, &cam)) {
                     running = false;
+                }
+
+                // Enable/disable SDL text input
+                const is_now_editing = action_mgr.text_edit.is_editing;
+                if (!was_editing and is_now_editing) {
+                    c.SDL_StartTextInput();
+                } else if (was_editing and !is_now_editing) {
+                    c.SDL_StopTextInput();
                 }
             }
 
@@ -238,6 +283,19 @@ pub fn main() !void {
             const preserved_ids: []const u32 = if (fps_element_id) |id| &[_]u32{id} else &[_]u32{};
             try populateScene(&scene_graph, colors, font, preserved_ids);
             fps_needs_update = true; // Force FPS display update with new colors
+        }
+
+        // Create text element if editing just finished with non-empty text
+        if (action_mgr.text_edit.should_create_element) {
+            const text = action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.finished_text_len];
+            _ = try scene_graph.addTextLabel(
+                text,
+                action_mgr.text_edit.finished_world_pos,
+                16.0,
+                colors.text,
+                .world,
+            );
+            action_mgr.text_edit.should_create_element = false; // Reset flag after creating element
         }
 
         // Update FPS counter
@@ -295,6 +353,100 @@ pub fn main() !void {
 
         // Render all scene elements
         scene_graph.render(renderer, font, &cam);
+
+        // Render text editing cursor if in edit mode
+        if (action_mgr.text_edit.is_editing) {
+            // Render the text being edited (split by newlines)
+            if (action_mgr.text_edit.text_len > 0) {
+                const edit_text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+                const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
+                _ = c.TTF_SetFontSize(font, 16);
+
+                // Split text by newlines and render each line
+                var line_y: f32 = screen_pos.y;
+                var line_start: usize = 0;
+                var i: usize = 0;
+                while (i <= edit_text.len) : (i += 1) {
+                    if (i == edit_text.len or edit_text[i] == '\n') {
+                        // Render this line (if not empty)
+                        if (i > line_start) {
+                            const line = edit_text[line_start..i];
+                            const line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{line}) catch "";
+
+                            const text_surface = c.TTF_RenderText_Blended(font, line_z.ptr, colors.text);
+                            if (text_surface != null) {
+                                defer c.SDL_FreeSurface(text_surface);
+                                const text_texture = c.SDL_CreateTextureFromSurface(renderer, text_surface);
+                                if (text_texture != null) {
+                                    defer c.SDL_DestroyTexture(text_texture);
+
+                                    var dest_rect = c.SDL_Rect{
+                                        .x = @intFromFloat(screen_pos.x),
+                                        .y = @intFromFloat(line_y),
+                                        .w = text_surface.*.w,
+                                        .h = text_surface.*.h,
+                                    };
+                                    _ = c.SDL_RenderCopy(renderer, text_texture, null, &dest_rect);
+                                }
+                            }
+                        }
+
+                        // Move to next line
+                        line_y += 16; // Line height
+                        line_start = i + 1;
+                    }
+                }
+            }
+
+            // Render blinking cursor
+            const cursor_blink_rate = 500; // ms
+            const time_ms = c.SDL_GetTicks();
+            if ((time_ms / cursor_blink_rate) % 2 == 0) {
+                const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
+
+                // Calculate cursor position - should be at end of last line
+                var cursor_x = screen_pos.x;
+                var cursor_y = screen_pos.y;
+
+                if (action_mgr.text_edit.text_len > 0) {
+                    const edit_text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+
+                    // Find the last line
+                    var last_line_start: usize = 0;
+                    var line_count: usize = 0;
+                    for (edit_text, 0..) |ch, idx| {
+                        if (ch == '\n') {
+                            last_line_start = idx + 1;
+                            line_count += 1;
+                        }
+                    }
+
+                    // Measure the last line width
+                    if (last_line_start < edit_text.len) {
+                        const last_line = edit_text[last_line_start..];
+                        const last_line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{last_line}) catch "";
+                        var text_w: c_int = 0;
+                        _ = c.TTF_SetFontSize(font, 16);
+                        _ = c.TTF_SizeText(font, last_line_z.ptr, &text_w, null);
+                        cursor_x += @floatFromInt(text_w);
+                    }
+
+                    // Position cursor at the correct line
+                    cursor_y += @as(f32, @floatFromInt(line_count)) * 16.0;
+                }
+
+                const cursor_height: i32 = 16;
+                _ = c.SDL_SetRenderDrawColor(renderer, colors.text.r, colors.text.g, colors.text.b, colors.text.a);
+                const cursor_y_int: i32 = @intFromFloat(cursor_y);
+                _ = c.SDL_RenderDrawLine(
+                    renderer,
+                    @intFromFloat(cursor_x),
+                    cursor_y_int,
+                    @intFromFloat(cursor_x),
+                    cursor_y_int + cursor_height,
+                );
+            }
+        }
 
         // Present the frame (swap buffers)
         c.SDL_RenderPresent(renderer);

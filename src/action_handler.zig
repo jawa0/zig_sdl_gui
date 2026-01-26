@@ -10,6 +10,21 @@ const Camera = camera.Camera;
 const Vec2 = math.Vec2;
 const SchemeType = color_scheme.SchemeType;
 
+/// Text editing state
+pub const TextEditState = struct {
+    is_editing: bool = false,
+    world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    text_buffer: [1024]u8 = undefined,
+    text_len: usize = 0,
+    cursor_pos: usize = 0, // Character position in buffer
+
+    /// Set when editing finishes with non-empty text that should be added to scene
+    should_create_element: bool = false,
+    finished_text_buffer: [1024]u8 = undefined,
+    finished_text_len: usize = 0,
+    finished_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -17,6 +32,7 @@ pub const ActionHandler = struct {
     scheme_type: SchemeType = .light,
     scheme_changed: bool = false,
     grid_visible: bool = true,
+    text_edit: TextEditState = TextEditState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};
@@ -25,8 +41,9 @@ pub const ActionHandler = struct {
     /// Process an action and update application state accordingly.
     /// Returns true if the application should quit.
     pub fn handle(self: *ActionHandler, params: ActionParams, cam: *Camera) bool {
-        // Reset scheme_changed flag at start of each frame
+        // Reset flags at start of each frame
         self.scheme_changed = false;
+        self.text_edit.should_create_element = false;
 
         switch (params) {
             .quit => {
@@ -55,6 +72,63 @@ pub const ActionHandler = struct {
 
             .toggle_grid => {
                 self.grid_visible = !self.grid_visible;
+            },
+
+            .begin_text_edit => |edit_params| {
+                // If we're already editing, finish the current text first
+                if (self.text_edit.is_editing and self.text_edit.text_len > 0) {
+                    const text = self.text_edit.text_buffer[0..self.text_edit.text_len];
+
+                    // Check if text is all whitespace
+                    var has_non_whitespace = false;
+                    for (text) |ch| {
+                        if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                            has_non_whitespace = true;
+                            break;
+                        }
+                    }
+
+                    if (has_non_whitespace) {
+                        // Store the text for scene element creation
+                        self.text_edit.should_create_element = true;
+                        @memcpy(self.text_edit.finished_text_buffer[0..self.text_edit.text_len], text);
+                        self.text_edit.finished_text_len = self.text_edit.text_len;
+                        self.text_edit.finished_world_pos = self.text_edit.world_pos;
+                    }
+                }
+
+                // Convert screen position to world position for new edit
+                const screen_pos = Vec2{ .x = edit_params.screen_x, .y = edit_params.screen_y };
+                self.text_edit.world_pos = cam.screenToWorld(screen_pos);
+                self.text_edit.is_editing = true;
+                self.text_edit.text_len = 0;
+                self.text_edit.cursor_pos = 0;
+            },
+
+            .end_text_edit => {
+                // Check if we have non-empty text to create
+                if (self.text_edit.text_len > 0) {
+                    const text = self.text_edit.text_buffer[0..self.text_edit.text_len];
+
+                    // Check if text is all whitespace
+                    var has_non_whitespace = false;
+                    for (text) |ch| {
+                        if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                            has_non_whitespace = true;
+                            break;
+                        }
+                    }
+
+                    if (has_non_whitespace) {
+                        // Store the text for scene element creation
+                        self.text_edit.should_create_element = true;
+                        @memcpy(self.text_edit.finished_text_buffer[0..self.text_edit.text_len], text);
+                        self.text_edit.finished_text_len = self.text_edit.text_len;
+                        self.text_edit.finished_world_pos = self.text_edit.world_pos;
+                    }
+                }
+
+                self.text_edit.is_editing = false;
             },
         }
 

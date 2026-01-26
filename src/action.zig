@@ -10,6 +10,8 @@ pub const Action = enum {
     zoom_out,
     toggle_color_scheme,
     toggle_grid,
+    begin_text_edit,
+    end_text_edit,
     // Future actions can be added here without changing input handling code
 };
 
@@ -21,6 +23,8 @@ pub const ActionParams = union(Action) {
     zoom_out: ZoomParams,
     toggle_color_scheme: void,
     toggle_grid: void,
+    begin_text_edit: TextEditParams,
+    end_text_edit: void,
 };
 
 pub const PanParams = struct {
@@ -33,4 +37,10 @@ pub const ZoomParams = struct {
     cursor_y: f32,
     /// Zoom factor (positive = zoom in, negative = zoom out)
     delta: f32,
+};
+
+pub const TextEditParams = struct {
+    /// Screen position where double-click occurred
+    screen_x: f32,
+    screen_y: f32,
 };

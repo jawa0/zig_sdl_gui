@@ -289,21 +289,46 @@ pub const SceneGraph = struct {
                     const x: i32 = @intFromFloat(screen_pos.x);
                     const y: i32 = @intFromFloat(screen_pos.y);
 
-                    // Ensure text is null-terminated
-                    var text_buf: [256]u8 = undefined;
-                    const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
+                    // Check if text contains newlines - handle multi-line separately
+                    const has_newline = std.mem.indexOfScalar(u8, label.text, '\n') != null;
 
-                    // Draw the text using the standalone drawing function
-                    _ = drawTextCached(
-                        &label.cache,
-                        renderer,
-                        font,
-                        null_term_text.ptr,
-                        x,
-                        y,
-                        target_font_size,
-                        label.color,
-                    );
+                    if (has_newline) {
+                        // Multi-line text: render line by line without caching
+                        _ = c.TTF_SetFontSize(font, @intFromFloat(target_font_size));
+                        var line_y: i32 = y;
+                        const line_height: i32 = @intFromFloat(target_font_size);
+                        var line_start: usize = 0;
+                        var i: usize = 0;
+
+                        while (i <= label.text.len) : (i += 1) {
+                            if (i == label.text.len or label.text[i] == '\n') {
+                                // Render this line if not empty
+                                if (i > line_start) {
+                                    const line = label.text[line_start..i];
+                                    var line_buf: [256]u8 = undefined;
+                                    const line_z = std.fmt.bufPrintZ(&line_buf, "{s}", .{line}) catch continue;
+                                    _ = text_cache.drawText(renderer, font, line_z.ptr, x, line_y, label.color);
+                                }
+                                line_y += line_height;
+                                line_start = i + 1;
+                            }
+                        }
+                    } else {
+                        // Single-line text: use cache
+                        var text_buf: [256]u8 = undefined;
+                        const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
+
+                        _ = drawTextCached(
+                            &label.cache,
+                            renderer,
+                            font,
+                            null_term_text.ptr,
+                            x,
+                            y,
+                            target_font_size,
+                            label.color,
+                        );
+                    }
                 },
                 .rectangle => {
                     const rect = &elem.data.rectangle;

@@ -83,18 +83,25 @@ The application currently supports these user actions:
 4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
 5. **Toggle Color Scheme** - Switch between light and dark color schemes
 6. **Toggle Grid** - Show/hide the world-space grid overlay
-7. **Resize Window** - Change window dimensions
+7. **Begin Text Edit** - Enter text editing mode at double-click location
+8. **End Text Edit** - Exit text editing mode
+9. **Resize Window** - Change window dimensions
 
 ### Current Input Bindings
 
 | Action | Input Binding | Implementation |
 |--------|--------------|----------------|
-| Quit Application | Escape key or window close | `input.zig:31-33` |
-| Toggle Color Scheme | D key | `input.zig:34-36` |
-| Toggle Grid | G key | `input.zig:37-39` |
-| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:67-73` |
-| Zoom In at Cursor | Ctrl + scroll up | `input.zig:56-65` |
-| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:56-65` |
+| Quit Application | Escape key (when not editing) or window close | `input.zig:36-42` |
+| Toggle Color Scheme | D key (when not editing) | `input.zig:45-47` |
+| Toggle Grid | G key (when not editing) | `input.zig:48-50` |
+| Begin Text Edit | Double-click left mouse button | `input.zig:58-74` |
+| End Text Edit | Escape key (while editing) | `input.zig:38` |
+| Text Input | Alphanumeric keys | `main.zig:216-223` |
+| New Line | Enter key | `main.zig:230-237` |
+| Backspace | Backspace key | `main.zig:224-229` |
+| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:86-92` |
+| Zoom In at Cursor | Ctrl + scroll up | `input.zig:75-84` |
+| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:75-84` |
 | Resize Window | Drag window edges/corners | SDL window event |
 
 ### Input Handling Architecture
@@ -113,6 +120,18 @@ The application currently supports these user actions:
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
 - Zoom range is constrained to 1%-10,000% (0.01x to 100x, enforced in `camera.zig`)
+- Text editing system:
+  - Double-click detection: 500ms window, 5px tolerance
+  - Text buffer: 1024 character limit
+  - Cursor rendering: vertical line that blinks every 500ms
+  - SDL_StartTextInput/SDL_StopTextInput called when entering/exiting edit mode
+  - Text positioned in world space at click location
+  - Escape key behavior changes based on edit mode (end edit vs quit app)
+  - Supports multi-line text with Enter key
+  - On exit (Escape): creates persistent scene element if text is non-empty
+  - Empty check: trims whitespace for validation but preserves all spaces in actual text
+  - Whitespace-only text (e.g., "   ") does not create an element
+  - Text with content (e.g., "  hello  ") preserves all spaces
 - Grid system: Recursive subdivision with zoom-based fading
   - Base spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0)
   - Minor divisions: 5 per major division (30, 6, 1.2, ... world units)

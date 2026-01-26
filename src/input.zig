@@ -10,12 +10,18 @@ const c = sdl.c;
 const ActionParams = action.ActionParams;
 const PanParams = action.PanParams;
 const ZoomParams = action.ZoomParams;
+const TextEditParams = action.TextEditParams;
 
 pub const InputState = struct {
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
+    last_click_time: u32 = 0,
+    last_click_x: f32 = 0,
+    last_click_y: f32 = 0,
 
     const PAN_SPEED: f32 = 20.0; // pixels per scroll unit
+    const DOUBLE_CLICK_TIME_MS: u32 = 500; // milliseconds
+    const DOUBLE_CLICK_DISTANCE: f32 = 5.0; // pixels
 
     pub fn init() InputState {
         return InputState{};
@@ -23,19 +29,28 @@ pub const InputState = struct {
 
     /// Handle an SDL event and generate an action if applicable.
     /// Returns an action to be processed by the ActionHandler, or null if no action.
-    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera) ?ActionParams {
+    /// is_editing parameter indicates if we're currently in text editing mode
+    pub fn handleEvent(self: *InputState, event: *const c.SDL_Event, cam: *const Camera, is_editing: bool) ?ActionParams {
         switch (event.type) {
             c.SDL_QUIT => return ActionParams{ .quit = {} },
 
             c.SDL_KEYDOWN => {
                 if (event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE) {
-                    return ActionParams{ .quit = {} };
+                    if (is_editing) {
+                        return ActionParams{ .end_text_edit = {} };
+                    } else {
+                        return ActionParams{ .quit = {} };
+                    }
                 }
-                if (event.key.keysym.scancode == c.SDL_SCANCODE_D) {
-                    return ActionParams{ .toggle_color_scheme = {} };
-                }
-                if (event.key.keysym.scancode == c.SDL_SCANCODE_G) {
-                    return ActionParams{ .toggle_grid = {} };
+
+                // Only handle these keys when not editing
+                if (!is_editing) {
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_D) {
+                        return ActionParams{ .toggle_color_scheme = {} };
+                    }
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_G) {
+                        return ActionParams{ .toggle_grid = {} };
+                    }
                 }
             },
 
@@ -79,6 +94,33 @@ pub const InputState = struct {
                     if (delta_x != 0 or delta_y != 0) {
                         return ActionParams{ .pan_move = PanParams{ .delta_x = delta_x, .delta_y = -delta_y } };
                     }
+                }
+            },
+
+            c.SDL_MOUSEBUTTONDOWN => {
+                if (event.button.button == c.SDL_BUTTON_LEFT) {
+                    const click_x = @as(f32, @floatFromInt(event.button.x));
+                    const click_y = @as(f32, @floatFromInt(event.button.y));
+                    const current_time = c.SDL_GetTicks();
+
+                    // Check for double-click
+                    const time_since_last = current_time - self.last_click_time;
+                    const dx = click_x - self.last_click_x;
+                    const dy = click_y - self.last_click_y;
+                    const distance = @sqrt(dx * dx + dy * dy);
+
+                    if (time_since_last <= DOUBLE_CLICK_TIME_MS and distance <= DOUBLE_CLICK_DISTANCE) {
+                        // Double-click detected
+                        return ActionParams{ .begin_text_edit = TextEditParams{
+                            .screen_x = click_x,
+                            .screen_y = click_y,
+                        } };
+                    }
+
+                    // Record this click for potential future double-click
+                    self.last_click_time = current_time;
+                    self.last_click_x = click_x;
+                    self.last_click_y = click_y;
                 }
             },
 
