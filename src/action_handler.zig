@@ -4,6 +4,7 @@ const camera = @import("camera.zig");
 const math = @import("math.zig");
 const color_scheme = @import("color_scheme.zig");
 const tool = @import("tool.zig");
+const text_buffer = @import("text_buffer.zig");
 
 const Action = action.Action;
 const ActionParams = action.ActionParams;
@@ -12,6 +13,7 @@ const Vec2 = math.Vec2;
 const SchemeType = color_scheme.SchemeType;
 const Tool = tool.Tool;
 const ResizeHandle = action.ResizeHandle;
+pub const TextBuffer = text_buffer.TextBuffer;
 
 /// Maximum number of elements that can be selected at once
 pub const MAX_SELECTED: usize = 256;
@@ -96,15 +98,68 @@ pub const SelectionSet = struct {
 pub const TextEditState = struct {
     is_editing: bool = false,
     world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
-    text_buffer: [1024]u8 = undefined,
-    text_len: usize = 0,
-    cursor_pos: usize = 0, // Character position in buffer
+    buffer: TextBuffer = TextBuffer.init(),
+
+    /// Element ID being edited (null if creating new text)
+    editing_element_id: ?u32 = null,
 
     /// Set when editing finishes with non-empty text that should be added to scene
     should_create_element: bool = false,
-    finished_text_buffer: [1024]u8 = undefined,
+    /// Set when editing finishes and we should update an existing element
+    should_update_element: bool = false,
+    finished_text_buffer: [text_buffer.MAX_BUFFER_SIZE]u8 = undefined,
     finished_text_len: usize = 0,
     finished_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    finished_element_id: ?u32 = null,
+
+    /// Start editing with a fresh buffer (creating new text)
+    pub fn startEditing(self: *TextEditState, pos: Vec2) void {
+        self.is_editing = true;
+        self.world_pos = pos;
+        self.buffer.clear();
+        self.editing_element_id = null;
+    }
+
+    /// Start editing an existing text element
+    pub fn startEditingElement(self: *TextEditState, element_id: u32, pos: Vec2, existing_text: []const u8) void {
+        self.is_editing = true;
+        self.world_pos = pos;
+        self.editing_element_id = element_id;
+        self.buffer.clear();
+        self.buffer.insert(existing_text);
+        // Position cursor at end
+        self.buffer.cursorToBufferEnd();
+    }
+
+    /// Finish editing and prepare for element creation/update if buffer has content
+    pub fn finishEditing(self: *TextEditState) void {
+        self.should_create_element = false;
+        self.should_update_element = false;
+
+        if (self.buffer.hasContent()) {
+            const text = self.buffer.getText();
+            @memcpy(self.finished_text_buffer[0..text.len], text);
+            self.finished_text_len = text.len;
+            self.finished_world_pos = self.world_pos;
+
+            if (self.editing_element_id) |elem_id| {
+                // Updating existing element
+                self.should_update_element = true;
+                self.finished_element_id = elem_id;
+            } else {
+                // Creating new element
+                self.should_create_element = true;
+            }
+        } else if (self.editing_element_id != null) {
+            // Text was cleared - mark for deletion by setting update with empty
+            self.should_update_element = true;
+            self.finished_element_id = self.editing_element_id;
+            self.finished_text_len = 0;
+        }
+
+        self.is_editing = false;
+        self.editing_element_id = null;
+    }
 };
 
 /// Per-element state at drag start (for multi-select drag)
@@ -281,59 +336,20 @@ pub const ActionHandler = struct {
                 self.current_tool = .text_creation;
 
                 // If we're already editing, finish the current text first
-                if (self.text_edit.is_editing and self.text_edit.text_len > 0) {
-                    const text = self.text_edit.text_buffer[0..self.text_edit.text_len];
-
-                    // Check if text is all whitespace
-                    var has_non_whitespace = false;
-                    for (text) |ch| {
-                        if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
-                            has_non_whitespace = true;
-                            break;
-                        }
-                    }
-
-                    if (has_non_whitespace) {
-                        // Store the text for scene element creation
-                        self.text_edit.should_create_element = true;
-                        @memcpy(self.text_edit.finished_text_buffer[0..self.text_edit.text_len], text);
-                        self.text_edit.finished_text_len = self.text_edit.text_len;
-                        self.text_edit.finished_world_pos = self.text_edit.world_pos;
-                    }
+                if (self.text_edit.is_editing) {
+                    self.text_edit.finishEditing();
                 }
+
+                // Clear selection - editing mode is separate from selection mode
+                self.selection.clear();
 
                 // Convert screen position to world position for new edit
                 const screen_pos = Vec2{ .x = edit_params.screen_x, .y = edit_params.screen_y };
-                self.text_edit.world_pos = cam.screenToWorld(screen_pos);
-                self.text_edit.is_editing = true;
-                self.text_edit.text_len = 0;
-                self.text_edit.cursor_pos = 0;
+                self.text_edit.startEditing(cam.screenToWorld(screen_pos));
             },
 
             .end_text_edit => {
-                // Check if we have non-empty text to create
-                if (self.text_edit.text_len > 0) {
-                    const text = self.text_edit.text_buffer[0..self.text_edit.text_len];
-
-                    // Check if text is all whitespace
-                    var has_non_whitespace = false;
-                    for (text) |ch| {
-                        if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
-                            has_non_whitespace = true;
-                            break;
-                        }
-                    }
-
-                    if (has_non_whitespace) {
-                        // Store the text for scene element creation
-                        self.text_edit.should_create_element = true;
-                        @memcpy(self.text_edit.finished_text_buffer[0..self.text_edit.text_len], text);
-                        self.text_edit.finished_text_len = self.text_edit.text_len;
-                        self.text_edit.finished_world_pos = self.text_edit.world_pos;
-                    }
-                }
-
-                self.text_edit.is_editing = false;
+                self.text_edit.finishEditing();
 
                 // Switch back to selection tool
                 self.current_tool = .selection;

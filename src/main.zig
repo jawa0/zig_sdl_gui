@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const math = @import("math.zig");
 const camera = @import("camera.zig");
 const scene = @import("scene.zig");
@@ -10,6 +11,8 @@ const action = @import("action.zig");
 const color_scheme = @import("color_scheme.zig");
 const grid = @import("grid.zig");
 const button = @import("button.zig");
+
+const is_macos = builtin.os.tag == .macos;
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -264,32 +267,94 @@ pub fn main() !void {
             // Handle text input when in editing mode
             if (action_mgr.text_edit.is_editing) {
                 if (event.type == c.SDL_TEXTINPUT) {
-                    // Add typed characters to buffer
+                    // Insert typed characters at cursor position
                     const text = std.mem.sliceTo(&event.text.text, 0);
-                    const remaining = action_mgr.text_edit.text_buffer.len - action_mgr.text_edit.text_len;
-                    const to_copy = @min(text.len, remaining);
-                    if (to_copy > 0) {
-                        @memcpy(action_mgr.text_edit.text_buffer[action_mgr.text_edit.text_len..][0..to_copy], text[0..to_copy]);
-                        action_mgr.text_edit.text_len += to_copy;
-                        action_mgr.text_edit.cursor_pos = action_mgr.text_edit.text_len;
-                    }
+                    action_mgr.text_edit.buffer.insert(text);
                     continue;
                 }
                 if (event.type == c.SDL_KEYDOWN) {
-                    if (event.key.keysym.scancode == c.SDL_SCANCODE_BACKSPACE) {
-                        if (action_mgr.text_edit.cursor_pos > 0) {
-                            action_mgr.text_edit.cursor_pos -= 1;
-                            action_mgr.text_edit.text_len -= 1;
+                    const scancode = event.key.keysym.scancode;
+                    const mod_state = c.SDL_GetModState();
+                    const ctrl_held = (mod_state & c.KMOD_CTRL) != 0;
+                    const cmd_held = (mod_state & c.KMOD_GUI) != 0; // Cmd on macOS, Win key elsewhere
+                    // Use Cmd on macOS, Ctrl on other platforms for shortcuts
+                    const shortcut_mod = if (is_macos) cmd_held else ctrl_held;
+
+                    // Backspace - delete character before cursor
+                    if (scancode == c.SDL_SCANCODE_BACKSPACE) {
+                        action_mgr.text_edit.buffer.deleteBackward();
+                        continue;
+                    }
+                    // Delete - delete character at cursor
+                    if (scancode == c.SDL_SCANCODE_DELETE) {
+                        action_mgr.text_edit.buffer.deleteForward();
+                        continue;
+                    }
+                    // Enter/Return - insert newline
+                    if (scancode == c.SDL_SCANCODE_RETURN) {
+                        action_mgr.text_edit.buffer.insertChar('\n');
+                        continue;
+                    }
+                    // Arrow keys - cursor movement
+                    // On macOS: Cmd+Left/Right = line start/end, Cmd+Up/Down = buffer start/end
+                    if (scancode == c.SDL_SCANCODE_LEFT) {
+                        if (is_macos and cmd_held) {
+                            action_mgr.text_edit.buffer.cursorToLineStart();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorBackward();
                         }
                         continue;
                     }
-                    if (event.key.keysym.scancode == c.SDL_SCANCODE_RETURN) {
-                        // Add newline
-                        if (action_mgr.text_edit.text_len < action_mgr.text_edit.text_buffer.len) {
-                            action_mgr.text_edit.text_buffer[action_mgr.text_edit.text_len] = '\n';
-                            action_mgr.text_edit.text_len += 1;
-                            action_mgr.text_edit.cursor_pos = action_mgr.text_edit.text_len;
+                    if (scancode == c.SDL_SCANCODE_RIGHT) {
+                        if (is_macos and cmd_held) {
+                            action_mgr.text_edit.buffer.cursorToLineEnd();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorForward();
                         }
+                        continue;
+                    }
+                    if (scancode == c.SDL_SCANCODE_UP) {
+                        if (is_macos and cmd_held) {
+                            action_mgr.text_edit.buffer.cursorToBufferStart();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorToPrevLine();
+                        }
+                        continue;
+                    }
+                    if (scancode == c.SDL_SCANCODE_DOWN) {
+                        if (is_macos and cmd_held) {
+                            action_mgr.text_edit.buffer.cursorToBufferEnd();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorToNextLine();
+                        }
+                        continue;
+                    }
+                    // Home - beginning of line (Ctrl/Cmd+Home = beginning of buffer)
+                    if (scancode == c.SDL_SCANCODE_HOME) {
+                        if (shortcut_mod) {
+                            action_mgr.text_edit.buffer.cursorToBufferStart();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorToLineStart();
+                        }
+                        continue;
+                    }
+                    // End - end of line (Ctrl/Cmd+End = end of buffer)
+                    if (scancode == c.SDL_SCANCODE_END) {
+                        if (shortcut_mod) {
+                            action_mgr.text_edit.buffer.cursorToBufferEnd();
+                        } else {
+                            action_mgr.text_edit.buffer.cursorToLineEnd();
+                        }
+                        continue;
+                    }
+                    // Ctrl+A - beginning of line (Emacs style, works on all platforms)
+                    if (ctrl_held and scancode == c.SDL_SCANCODE_A) {
+                        action_mgr.text_edit.buffer.cursorToLineStart();
+                        continue;
+                    }
+                    // Ctrl+E - end of line (Emacs style, works on all platforms)
+                    if (ctrl_held and scancode == c.SDL_SCANCODE_E) {
+                        action_mgr.text_edit.buffer.cursorToLineEnd();
                         continue;
                     }
                 }
@@ -314,23 +379,7 @@ pub fn main() !void {
                 const finishTextEdit = struct {
                     fn call(mgr: *ActionHandler) void {
                         if (mgr.text_edit.is_editing) {
-                            if (mgr.text_edit.text_len > 0) {
-                                const text = mgr.text_edit.text_buffer[0..mgr.text_edit.text_len];
-                                var has_non_whitespace = false;
-                                for (text) |ch| {
-                                    if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
-                                        has_non_whitespace = true;
-                                        break;
-                                    }
-                                }
-                                if (has_non_whitespace) {
-                                    mgr.text_edit.should_create_element = true;
-                                    @memcpy(mgr.text_edit.finished_text_buffer[0..mgr.text_edit.text_len], text);
-                                    mgr.text_edit.finished_text_len = mgr.text_edit.text_len;
-                                    mgr.text_edit.finished_world_pos = mgr.text_edit.world_pos;
-                                }
-                            }
-                            mgr.text_edit.is_editing = false;
+                            mgr.text_edit.finishEditing();
                             c.SDL_StopTextInput();
                         }
                     }
@@ -365,45 +414,152 @@ pub fn main() !void {
                 }
             }
 
-            // Handle clicking on empty canvas while editing text - ends editing and starts drag select
+            // Handle clicking while editing text - either move cursor or end editing
             if (action_mgr.text_edit.is_editing and event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
                 const click_x = @as(f32, @floatFromInt(event.button.x));
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
                 // Skip if clicking toolbar buttons (handled above)
                 if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y) and !rectangle_button.contains(click_x, click_y)) {
-                    // Check if clicking on empty canvas (no element hit)
-                    if (scene_graph.hitTest(click_x, click_y, &cam) == null) {
-                        // End text editing first
-                        if (action_mgr.text_edit.text_len > 0) {
-                            const text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
-                            var has_non_whitespace = false;
-                            for (text) |ch| {
-                                if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
-                                    has_non_whitespace = true;
+                    // Check if click is within the text being edited
+                    const base_font_size: f32 = 16.0;
+                    const target_font_size = base_font_size * cam.zoom;
+                    const line_spacing = target_font_size * scene.LINE_SPACING_MULTIPLIER;
+                    const font_size_int: c_int = @intFromFloat(target_font_size);
+
+                    const text_screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
+                    const edit_text = action_mgr.text_edit.buffer.getText();
+
+                    // Calculate text bounds
+                    var max_line_width: f32 = 0;
+                    var line_count: usize = 1;
+                    var current_line_start: usize = 0;
+
+                    _ = c.TTF_SetFontSize(font, font_size_int);
+
+                    for (edit_text, 0..) |ch, idx| {
+                        if (ch == '\n') {
+                            // Measure this line
+                            if (idx > current_line_start) {
+                                const line_text = edit_text[current_line_start..idx];
+                                const line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{line_text}) catch "";
+                                var text_w: c_int = 0;
+                                _ = c.TTF_SizeText(font, line_z.ptr, &text_w, null);
+                                max_line_width = @max(max_line_width, @as(f32, @floatFromInt(text_w)));
+                            }
+                            line_count += 1;
+                            current_line_start = idx + 1;
+                        }
+                    }
+                    // Measure last line
+                    if (current_line_start < edit_text.len) {
+                        const line_text = edit_text[current_line_start..];
+                        const line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{line_text}) catch "";
+                        var text_w: c_int = 0;
+                        _ = c.TTF_SizeText(font, line_z.ptr, &text_w, null);
+                        max_line_width = @max(max_line_width, @as(f32, @floatFromInt(text_w)));
+                    }
+
+                    // Add some padding for click area (make it easier to click)
+                    const padding: f32 = 10.0;
+                    const text_height = @as(f32, @floatFromInt(line_count)) * line_spacing;
+                    const text_width = @max(max_line_width, 20.0); // Minimum width for empty/short text
+
+                    // Check if click is within text bounds
+                    const in_text_x = click_x >= text_screen_pos.x - padding and click_x <= text_screen_pos.x + text_width + padding;
+                    const in_text_y = click_y >= text_screen_pos.y - padding and click_y <= text_screen_pos.y + text_height + padding;
+
+                    if (in_text_x and in_text_y and edit_text.len > 0) {
+                        // Calculate which line was clicked
+                        const relative_y = click_y - text_screen_pos.y;
+                        const clicked_line: usize = if (relative_y < 0) 0 else @min(@as(usize, @intFromFloat(relative_y / line_spacing)), line_count - 1);
+
+                        // Find the start index of the clicked line
+                        var line_start_idx: usize = 0;
+                        var current_line: usize = 0;
+                        for (edit_text, 0..) |ch, idx| {
+                            if (current_line == clicked_line) {
+                                line_start_idx = idx;
+                                break;
+                            }
+                            if (ch == '\n') {
+                                current_line += 1;
+                                if (current_line == clicked_line) {
+                                    line_start_idx = idx + 1;
                                     break;
                                 }
                             }
-                            if (has_non_whitespace) {
-                                action_mgr.text_edit.should_create_element = true;
-                                @memcpy(action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.text_len], text);
-                                action_mgr.text_edit.finished_text_len = action_mgr.text_edit.text_len;
-                                action_mgr.text_edit.finished_world_pos = action_mgr.text_edit.world_pos;
+                        }
+
+                        // Find the end of the clicked line
+                        var line_end_idx: usize = edit_text.len;
+                        for (line_start_idx..edit_text.len) |idx| {
+                            if (edit_text[idx] == '\n') {
+                                line_end_idx = idx;
+                                break;
                             }
                         }
-                        action_mgr.text_edit.is_editing = false;
-                        action_mgr.current_tool = .selection;
-                        c.SDL_StopTextInput();
 
-                        // Start drag-select
+                        // Calculate which character was clicked by measuring text width
+                        const relative_x = click_x - text_screen_pos.x;
+                        var best_cursor_pos = line_start_idx;
+
+                        if (relative_x > 0 and line_end_idx > line_start_idx) {
+                            // Measure text width character by character to find click position
+                            var prev_width: f32 = 0;
+                            for (line_start_idx..line_end_idx + 1) |idx| {
+                                const substr = edit_text[line_start_idx..idx];
+                                const substr_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{substr}) catch "";
+                                var text_w: c_int = 0;
+                                _ = c.TTF_SizeText(font, substr_z.ptr, &text_w, null);
+                                const current_width = @as(f32, @floatFromInt(text_w));
+
+                                // Check if click is between prev_width and current_width
+                                if (relative_x <= current_width) {
+                                    // Choose closer position
+                                    if (relative_x - prev_width < current_width - relative_x) {
+                                        best_cursor_pos = idx - 1;
+                                        if (idx == line_start_idx) best_cursor_pos = line_start_idx;
+                                    } else {
+                                        best_cursor_pos = idx;
+                                    }
+                                    break;
+                                }
+                                prev_width = current_width;
+                                best_cursor_pos = idx;
+                            }
+                        }
+
+                        // Move cursor to clicked position
+                        action_mgr.text_edit.buffer.cursor = best_cursor_pos;
+                        continue;
+                    }
+
+                    // Click outside text - end editing and handle click
+                    // End text editing first
+                    action_mgr.text_edit.finishEditing();
+                    action_mgr.current_tool = .selection;
+                    c.SDL_StopTextInput();
+
+                    // Record this click for double-click detection (since we're consuming the event)
+                    input_state.last_click_time = c.SDL_GetTicks();
+                    input_state.last_click_x = click_x;
+                    input_state.last_click_y = click_y;
+
+                    // Check if clicking on an element or empty canvas
+                    if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
+                        // Clicked on another element - select it
+                        action_mgr.selection.selectOnly(hit_id);
+                    } else {
+                        // Clicked on empty canvas - start drag-select
                         const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
                         action_mgr.drag_select.is_active = true;
                         action_mgr.drag_select.start_world = world_pos;
                         action_mgr.drag_select.current_world = world_pos;
                         action_mgr.selection.clear();
-
-                        continue;
                     }
+
+                    continue;
                 }
             }
 
@@ -416,11 +572,10 @@ pub fn main() !void {
                 if (action_mgr.current_tool == .text_placement) {
                     // Single-click places text in text_placement mode
                     const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
-                    action_mgr.text_edit.world_pos = world_pos;
-                    action_mgr.text_edit.is_editing = true;
-                    action_mgr.text_edit.text_len = 0;
-                    action_mgr.text_edit.cursor_pos = 0;
+                    action_mgr.text_edit.startEditing(world_pos);
                     action_mgr.current_tool = .text_creation;
+                    // Clear selection - editing mode is separate from selection mode
+                    action_mgr.selection.clear();
                     c.SDL_StartTextInput();
                     // Reset cursor to arrow
                     if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
@@ -1002,13 +1157,70 @@ pub fn main() !void {
                 // Check if we're entering or leaving text edit mode to enable/disable text input
                 const was_editing = action_mgr.text_edit.is_editing;
 
-                // Special handling for begin_text_edit: only allow if not clicking on an element
+                // Special handling for begin_text_edit: check if clicking on text element or blank canvas
                 const should_process = switch (action_params) {
                     .begin_text_edit => |edit_params| blk: {
+                        // If already editing, finish current edit first and process any pending updates
+                        if (action_mgr.text_edit.is_editing) {
+                            action_mgr.text_edit.finishEditing();
+                            c.SDL_StopTextInput();
+
+                            // Process pending element updates immediately
+                            if (action_mgr.text_edit.should_update_element) {
+                                if (action_mgr.text_edit.finished_element_id) |old_elem_id| {
+                                    _ = scene_graph.removeElement(old_elem_id);
+                                    if (action_mgr.text_edit.finished_text_len > 0) {
+                                        const text = action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.finished_text_len];
+                                        _ = scene_graph.addTextLabel(
+                                            text,
+                                            action_mgr.text_edit.finished_world_pos,
+                                            16.0,
+                                            colors.text,
+                                            .world,
+                                            font,
+                                        ) catch null;
+                                    }
+                                }
+                                action_mgr.text_edit.should_update_element = false;
+                                action_mgr.text_edit.finished_element_id = null;
+                            }
+                            if (action_mgr.text_edit.should_create_element) {
+                                const text = action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.finished_text_len];
+                                _ = scene_graph.addTextLabel(
+                                    text,
+                                    action_mgr.text_edit.finished_world_pos,
+                                    16.0,
+                                    colors.text,
+                                    .world,
+                                    font,
+                                ) catch null;
+                                action_mgr.text_edit.should_create_element = false;
+                            }
+                        }
+
                         // Check if double-click is on an element
                         const hit_id = scene_graph.hitTest(edit_params.screen_x, edit_params.screen_y, &cam);
-                        // Only begin text edit if clicking on blank canvas (no element hit)
-                        break :blk hit_id == null;
+                        if (hit_id) |elem_id| {
+                            // Check if it's a text element
+                            if (scene_graph.findElement(elem_id)) |elem| {
+                                if (elem.element_type == .text_label) {
+                                    // Start editing this text element
+                                    const text = elem.data.text_label.text;
+                                    action_mgr.text_edit.startEditingElement(elem_id, elem.transform.position, text);
+                                    action_mgr.current_tool = .text_creation;
+                                    // Clear selection - editing mode is separate from selection mode
+                                    action_mgr.selection.clear();
+                                    c.SDL_StartTextInput();
+                                    // Hide the element while editing
+                                    elem.visible = false;
+                                    break :blk false; // Don't process the normal action
+                                }
+                            }
+                            // Non-text element hit, don't start editing
+                            break :blk false;
+                        }
+                        // No element hit, allow creating new text
+                        break :blk true;
                     },
                     else => true, // Process all other actions normally
                 };
@@ -1061,6 +1273,29 @@ pub fn main() !void {
                 font,
             );
             action_mgr.text_edit.should_create_element = false; // Reset flag after creating element
+        }
+
+        // Update existing text element if editing finished
+        if (action_mgr.text_edit.should_update_element) {
+            if (action_mgr.text_edit.finished_element_id) |elem_id| {
+                // Remove the old element
+                _ = scene_graph.removeElement(elem_id);
+
+                // Create new element with updated text (if not empty)
+                if (action_mgr.text_edit.finished_text_len > 0) {
+                    const text = action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.finished_text_len];
+                    _ = try scene_graph.addTextLabel(
+                        text,
+                        action_mgr.text_edit.finished_world_pos,
+                        16.0,
+                        colors.text,
+                        .world,
+                        font,
+                    );
+                }
+            }
+            action_mgr.text_edit.should_update_element = false;
+            action_mgr.text_edit.finished_element_id = null;
         }
 
         // Update FPS counter
@@ -1352,8 +1587,8 @@ pub fn main() !void {
             const line_spacing = target_font_size * scene.LINE_SPACING_MULTIPLIER;
 
             // Render the text being edited (split by newlines)
-            if (action_mgr.text_edit.text_len > 0) {
-                const edit_text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+            const edit_text = action_mgr.text_edit.buffer.getText();
+            if (edit_text.len > 0) {
                 const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
                 _ = c.TTF_SetFontSize(font, font_size_int);
 
@@ -1397,42 +1632,40 @@ pub fn main() !void {
                 }
             }
 
-            // Render blinking cursor
+            // Render blinking cursor at current cursor position
             const cursor_blink_rate = 500; // ms
             const time_ms = c.SDL_GetTicks();
             if ((time_ms / cursor_blink_rate) % 2 == 0) {
                 const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
+                const cursor_pos = action_mgr.text_edit.buffer.cursor;
 
-                // Calculate cursor position - should be at end of last line
+                // Calculate cursor screen position based on line and column
                 var cursor_x = screen_pos.x;
                 var cursor_y = screen_pos.y;
 
-                if (action_mgr.text_edit.text_len > 0) {
-                    const edit_text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+                // Count lines and find line start for cursor position
+                var line_count: usize = 0;
+                var line_start_for_cursor: usize = 0;
 
-                    // Find the last line
-                    var last_line_start: usize = 0;
-                    var line_count: usize = 0;
-                    for (edit_text, 0..) |ch, idx| {
-                        if (ch == '\n') {
-                            last_line_start = idx + 1;
-                            line_count += 1;
-                        }
+                for (0..cursor_pos) |idx| {
+                    if (edit_text[idx] == '\n') {
+                        line_count += 1;
+                        line_start_for_cursor = idx + 1;
                     }
-
-                    // Measure the last line width (with zoomed font size)
-                    if (last_line_start < edit_text.len) {
-                        const last_line = edit_text[last_line_start..];
-                        const last_line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{last_line}) catch "";
-                        var text_w: c_int = 0;
-                        _ = c.TTF_SetFontSize(font, font_size_int);
-                        _ = c.TTF_SizeText(font, last_line_z.ptr, &text_w, null);
-                        cursor_x += @floatFromInt(text_w);
-                    }
-
-                    // Position cursor at the correct line
-                    cursor_y += @as(f32, @floatFromInt(line_count)) * line_spacing;
                 }
+
+                // Measure the text from line start to cursor position
+                if (cursor_pos > line_start_for_cursor) {
+                    const text_before_cursor = edit_text[line_start_for_cursor..cursor_pos];
+                    const text_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{text_before_cursor}) catch "";
+                    var text_w: c_int = 0;
+                    _ = c.TTF_SetFontSize(font, font_size_int);
+                    _ = c.TTF_SizeText(font, text_z.ptr, &text_w, null);
+                    cursor_x += @floatFromInt(text_w);
+                }
+
+                // Position cursor at the correct line
+                cursor_y += @as(f32, @floatFromInt(line_count)) * line_spacing;
 
                 // Cursor spans the full line spacing, centered on the text.
                 // This makes it visible above the mouse cursor without overlapping adjacent lines.
