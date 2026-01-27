@@ -48,6 +48,7 @@ pub const ResizeState = struct {
     opposite_corner: Vec2 = Vec2{ .x = 0, .y = 0 }, // World position of opposite corner (anchor point)
     start_bbox_width: f32 = 0,
     start_bbox_height: f32 = 0,
+    last_scale_factor: f32 = 1.0, // Track last applied scale to prevent oscillation
 };
 
 /// Handles application actions by updating application state.

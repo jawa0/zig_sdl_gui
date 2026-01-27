@@ -311,6 +311,7 @@ pub fn main() !void {
                                 action_mgr.resize.element_start_scale = elem.transform.scale;
                                 action_mgr.resize.start_bbox_width = world_bbox.w;
                                 action_mgr.resize.start_bbox_height = world_bbox.h;
+                                action_mgr.resize.last_scale_factor = 1.0; // Reset scale tracking
 
                                 if (elem.element_type == .text_label) {
                                     action_mgr.resize.element_start_font_size = elem.data.text_label.font_size;
@@ -398,23 +399,34 @@ pub fn main() !void {
                 } else if (action_mgr.resize.is_resizing) {
                     // Update element scale/size - handle stays locked under cursor
                     if (scene_graph.findElement(action_mgr.resize.element_id)) |elem| {
-                        // Current cursor position in world space
-                        const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                        // 1. Handle position = cursor (exact, locked under cursor)
+                        const handle_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
 
-                        // Calculate new width and height from cursor to opposite corner
-                        const new_width = @abs(current_world.x - action_mgr.resize.opposite_corner.x);
-                        const new_height = @abs(current_world.y - action_mgr.resize.opposite_corner.y);
+                        // 2. Calculate desired bbox dimensions from geometry
+                        const desired_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
+                        const desired_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
 
-                        // Calculate scale factor maintaining aspect ratio
-                        // Use the larger dimension change to maintain proportions
-                        const width_scale = new_width / action_mgr.resize.start_bbox_width;
-                        const height_scale = new_height / action_mgr.resize.start_bbox_height;
+                        // 3. Calculate scale factor maintaining aspect ratio
+                        const width_scale = desired_width / action_mgr.resize.start_bbox_width;
+                        const height_scale = desired_height / action_mgr.resize.start_bbox_height;
                         var scale_factor = @max(width_scale, height_scale);
 
                         // Clamp scale to reasonable range
                         scale_factor = @max(0.1, @min(10.0, scale_factor));
 
-                        // Apply scale
+                        // Add hysteresis to prevent oscillation at high zoom levels
+                        // Only update if scale changes by at least 0.5% to filter out floating-point jitter
+                        const scale_change = @abs(scale_factor - action_mgr.resize.last_scale_factor);
+                        const min_scale_change = 0.005 * action_mgr.resize.last_scale_factor;
+                        if (scale_change < min_scale_change) {
+                            // Change too small, use previous scale to avoid oscillation
+                            scale_factor = action_mgr.resize.last_scale_factor;
+                        } else {
+                            // Significant change, update tracking
+                            action_mgr.resize.last_scale_factor = scale_factor;
+                        }
+
+                        // 4. Apply scale to font size or transform scale
                         if (elem.element_type == .text_label) {
                             // For text, update font size
                             elem.data.text_label.font_size = action_mgr.resize.element_start_font_size * scale_factor;
@@ -427,31 +439,33 @@ pub fn main() !void {
                             };
                         }
 
-                        // Update bounding box to get new dimensions
+                        // 5. Get ACTUAL bbox dimensions (need this before positioning)
+                        // Call updateBoundingBox to measure actual rendered size
+                        // (bbox position will be wrong here but we'll fix it in step 7)
                         scene_graph.updateElementBoundingBox(elem.id, font);
+                        const actual_bbox_width = elem.bounding_box.w;
+                        const actual_bbox_height = elem.bounding_box.h;
 
-                        // Update element position to keep opposite corner fixed
-                        // Calculate where the element position should be to maintain opposite corner
-                        const new_bbox = elem.bounding_box;
+                        // 6. Position element to keep opposite corner fixed using ACTUAL dimensions
                         switch (action_mgr.resize.handle) {
                             .top_left => {
                                 // Opposite corner is bottom-right
                                 elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - new_bbox.w,
-                                    .y = action_mgr.resize.opposite_corner.y + new_bbox.h,
+                                    .x = action_mgr.resize.opposite_corner.x - actual_bbox_width,
+                                    .y = action_mgr.resize.opposite_corner.y + actual_bbox_height,
                                 };
                             },
                             .top_right => {
                                 // Opposite corner is bottom-left
                                 elem.transform.position = Vec2{
                                     .x = action_mgr.resize.opposite_corner.x,
-                                    .y = action_mgr.resize.opposite_corner.y + new_bbox.h,
+                                    .y = action_mgr.resize.opposite_corner.y + actual_bbox_height,
                                 };
                             },
                             .bottom_left => {
                                 // Opposite corner is top-right
                                 elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - new_bbox.w,
+                                    .x = action_mgr.resize.opposite_corner.x - actual_bbox_width,
                                     .y = action_mgr.resize.opposite_corner.y,
                                 };
                             },
@@ -464,8 +478,10 @@ pub fn main() !void {
                             },
                         }
 
-                        // Update bounding box again after position change
-                        scene_graph.updateElementBoundingBox(elem.id, font);
+                        // 7. Update bbox to reflect new position (dimensions unchanged)
+                        // This ensures bbox is always consistent with element position
+                        elem.bounding_box.x = elem.transform.position.x;
+                        elem.bounding_box.y = elem.transform.position.y - actual_bbox_height;
                     }
                 }
             }
