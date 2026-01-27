@@ -194,36 +194,87 @@ pub const SceneGraph = struct {
         // So the bounding box bottom is at position.y - height.
         const bbox = if (font) |f| blk: {
             _ = c.TTF_SetFontSize(f, @intFromFloat(font_size));
-            var text_buf: [256]u8 = undefined;
-            const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{text}) catch {
-                // If text is too long, use approximate dimensions
-                const approx_h = font_size;
+
+            // Check if text contains newlines (multiline)
+            const has_newline = std.mem.indexOfScalar(u8, text, '\n') != null;
+
+            if (has_newline) {
+                // Multiline text: calculate dimensions line by line
+                var max_width: c_int = 0;
+                var line_count: usize = 0;
+                var line_start: usize = 0;
+
+                var i: usize = 0;
+                while (i <= text.len) : (i += 1) {
+                    if (i == text.len or text[i] == '\n') {
+                        if (i > line_start) {
+                            const line = text[line_start..i];
+                            var line_buf: [256]u8 = undefined;
+                            const line_z = std.fmt.bufPrintZ(&line_buf, "{s}", .{line}) catch {
+                                line_start = i + 1;
+                                continue;
+                            };
+
+                            var line_w: c_int = 0;
+                            var line_h: c_int = 0;
+                            _ = c.TTF_SizeText(f, line_z.ptr, &line_w, &line_h);
+                            max_width = @max(max_width, line_w);
+                            line_count += 1;
+                        } else {
+                            // Empty line still counts
+                            line_count += 1;
+                        }
+                        line_start = i + 1;
+                    }
+                }
+
+                if (line_count == 0) line_count = 1; // At least one line
+
+                const total_height = font_size * @as(f32, @floatFromInt(line_count));
                 break :blk BoundingBox{
                     .x = position.x,
-                    .y = position.y - approx_h, // Bottom of text in world space
-                    .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6, // Approximate
-                    .h = approx_h,
+                    .y = position.y - total_height, // Bottom of text in world space
+                    .w = @floatFromInt(max_width),
+                    .h = total_height,
                 };
-            };
+            } else {
+                // Single line text: use TTF_SizeText
+                var text_buf: [256]u8 = undefined;
+                const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{text}) catch {
+                    // If text is too long, use approximate dimensions
+                    const approx_h = font_size;
+                    break :blk BoundingBox{
+                        .x = position.x,
+                        .y = position.y - approx_h, // Bottom of text in world space
+                        .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6, // Approximate
+                        .h = approx_h,
+                    };
+                };
 
-            var text_w: c_int = 0;
-            var text_h: c_int = 0;
-            _ = c.TTF_SizeText(f, null_term_text.ptr, &text_w, &text_h);
+                var text_w: c_int = 0;
+                var text_h: c_int = 0;
+                _ = c.TTF_SizeText(f, null_term_text.ptr, &text_w, &text_h);
 
-            const h = @as(f32, @floatFromInt(text_h));
-            break :blk BoundingBox{
-                .x = position.x,
-                .y = position.y - h, // Bottom of text in world space
-                .w = @floatFromInt(text_w),
-                .h = h,
-            };
+                const h = @as(f32, @floatFromInt(text_h));
+                break :blk BoundingBox{
+                    .x = position.x,
+                    .y = position.y - h, // Bottom of text in world space
+                    .w = @floatFromInt(text_w),
+                    .h = h,
+                };
+            }
         } else blk: {
             // No font available (e.g., in tests) - use approximate dimensions
-            const approx_h = font_size;
+            // Count lines for multiline text
+            var line_count: usize = 1;
+            for (text) |ch| {
+                if (ch == '\n') line_count += 1;
+            }
+            const approx_h = font_size * @as(f32, @floatFromInt(line_count));
             break :blk BoundingBox{
                 .x = position.x,
                 .y = position.y - approx_h, // Bottom of text in world space
-                .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6,
+                .w = font_size * @as(f32, @floatFromInt(text.len)) * 0.6 / @as(f32, @floatFromInt(line_count)),
                 .h = approx_h,
             };
         };
@@ -345,28 +396,71 @@ pub const SceneGraph = struct {
                 const label = &elem.data.text_label;
                 _ = c.TTF_SetFontSize(font, @intFromFloat(label.font_size));
 
-                var text_buf: [256]u8 = undefined;
-                const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch {
-                    // Use approximate dimensions if text is too long
-                    const h = label.font_size;
+                // Check if text contains newlines (multiline)
+                const has_newline = std.mem.indexOfScalar(u8, label.text, '\n') != null;
+
+                if (has_newline) {
+                    // Multiline text: calculate dimensions line by line
+                    var max_width: c_int = 0;
+                    var line_count: usize = 0;
+                    var line_start: usize = 0;
+
+                    var i: usize = 0;
+                    while (i <= label.text.len) : (i += 1) {
+                        if (i == label.text.len or label.text[i] == '\n') {
+                            if (i > line_start) {
+                                const line = label.text[line_start..i];
+                                var line_buf: [256]u8 = undefined;
+                                const line_z = std.fmt.bufPrintZ(&line_buf, "{s}", .{line}) catch {
+                                    line_start = i + 1;
+                                    continue;
+                                };
+
+                                var line_w: c_int = 0;
+                                var line_h: c_int = 0;
+                                _ = c.TTF_SizeText(font, line_z.ptr, &line_w, &line_h);
+                                max_width = @max(max_width, line_w);
+                                line_count += 1;
+                            } else {
+                                // Empty line still counts
+                                line_count += 1;
+                            }
+                            line_start = i + 1;
+                        }
+                    }
+
+                    if (line_count == 0) line_count = 1; // At least one line
+
+                    const total_height = label.font_size * @as(f32, @floatFromInt(line_count));
+                    elem.bounding_box.x = elem.transform.position.x;
+                    elem.bounding_box.y = elem.transform.position.y - total_height; // Bottom in world space
+                    elem.bounding_box.w = @floatFromInt(max_width);
+                    elem.bounding_box.h = total_height;
+                } else {
+                    // Single line text: use TTF_SizeText
+                    var text_buf: [256]u8 = undefined;
+                    const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch {
+                        // Use approximate dimensions if text is too long
+                        const h = label.font_size;
+                        elem.bounding_box.x = elem.transform.position.x;
+                        elem.bounding_box.y = elem.transform.position.y - h; // Bottom in world space
+                        elem.bounding_box.w = label.font_size * @as(f32, @floatFromInt(label.text.len)) * 0.6;
+                        elem.bounding_box.h = h;
+                        return;
+                    };
+
+                    var text_w: c_int = 0;
+                    var text_h: c_int = 0;
+                    _ = c.TTF_SizeText(font, null_term_text.ptr, &text_w, &text_h);
+
+                    // Update bounding box dimensions (position stays with transform)
+                    // In world space (Y-up), text extends downward from position
+                    const h = @as(f32, @floatFromInt(text_h));
                     elem.bounding_box.x = elem.transform.position.x;
                     elem.bounding_box.y = elem.transform.position.y - h; // Bottom in world space
-                    elem.bounding_box.w = label.font_size * @as(f32, @floatFromInt(label.text.len)) * 0.6;
+                    elem.bounding_box.w = @floatFromInt(text_w);
                     elem.bounding_box.h = h;
-                    return;
-                };
-
-                var text_w: c_int = 0;
-                var text_h: c_int = 0;
-                _ = c.TTF_SizeText(font, null_term_text.ptr, &text_w, &text_h);
-
-                // Update bounding box dimensions (position stays with transform)
-                // In world space (Y-up), text extends downward from position
-                const h = @as(f32, @floatFromInt(text_h));
-                elem.bounding_box.x = elem.transform.position.x;
-                elem.bounding_box.y = elem.transform.position.y - h; // Bottom in world space
-                elem.bounding_box.w = @floatFromInt(text_w);
-                elem.bounding_box.h = h;
+                }
             },
             .rectangle => {
                 const rect = &elem.data.rectangle;
@@ -968,4 +1062,71 @@ test "Bounding box hit testing for overlapping elements" {
     // Point at (30, 70) should be inside both (overlapping region)
     try expect(elem1.bounding_box.containsWorld(30, 70));
     try expect(elem2.bounding_box.containsWorld(30, 70));
+}
+
+test "Multiline text bounding box calculation" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Create multiline text with 3 lines at position (0, 100) with font size 16
+    const multiline_text = "Line 1\nLine 2\nLine 3";
+    const id = try scene.addTextLabel(multiline_text, Vec2{ .x = 0, .y = 100 }, 16, white, .world, null);
+    const elem = scene.findElement(id).?;
+
+    const bbox = elem.bounding_box;
+
+    // With 3 lines and font_size=16, total height should be 3 * 16 = 48
+    try expectEqual(48, bbox.h);
+
+    // Top should be at position.y (100)
+    const bbox_top = bbox.y + bbox.h;
+    try expectEqual(100, bbox_top);
+
+    // Bottom should be at position.y - height = 100 - 48 = 52
+    try expectEqual(52, bbox.y);
+
+    // Test hit detection at top of text
+    try expect(bbox.containsWorld(0, 100));
+
+    // Test hit detection at bottom of text
+    try expect(bbox.containsWorld(0, 52));
+
+    // Test just below bottom (should be outside)
+    try expect(!bbox.containsWorld(0, 51));
+
+    // Test just above top (should be outside)
+    try expect(!bbox.containsWorld(0, 101));
+}
+
+test "Single line text vs multiline text bounding boxes" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Create single line text
+    const single_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 100 }, 16, white, .world, null);
+    const single_elem = scene.findElement(single_id).?;
+
+    // Create multiline text with same content but with newline
+    const multi_id = try scene.addTextLabel("Test\n", Vec2{ .x = 0, .y = 100 }, 16, white, .world, null);
+    const multi_elem = scene.findElement(multi_id).?;
+
+    // Single line should have height approximately equal to font_size (16)
+    try expectEqual(16, single_elem.bounding_box.h);
+
+    // Multiline with 2 lines (text + empty line after \n) should have height 2 * 16 = 32
+    try expectEqual(32, multi_elem.bounding_box.h);
+
+    // Both should have same top
+    const single_top = single_elem.bounding_box.y + single_elem.bounding_box.h;
+    const multi_top = multi_elem.bounding_box.y + multi_elem.bounding_box.h;
+    try expectEqual(100, single_top);
+    try expectEqual(100, multi_top);
+
+    // But different bottoms
+    try expectEqual(84, single_elem.bounding_box.y); // 100 - 16
+    try expectEqual(68, multi_elem.bounding_box.y); // 100 - 32
 }
