@@ -377,6 +377,37 @@ pub const SceneGraph = struct {
         return null;
     }
 
+    /// Update colors of scene elements (used when color scheme changes)
+    /// Only updates world-space elements, leaving screen-space UI (like FPS) unchanged
+    pub fn updateSceneColors(self: *SceneGraph, text_color: c.SDL_Color, rect_red: c.SDL_Color, rect_green: c.SDL_Color, rect_yellow: c.SDL_Color) void {
+        _ = rect_yellow; // Currently unused, but kept for future use
+        for (self.elements.items) |*elem| {
+            // Only update world-space elements (not screen-space UI like FPS)
+            if (elem.space != .world) continue;
+
+            switch (elem.element_type) {
+                .text_label => {
+                    elem.data.text_label.color = text_color;
+                    // Clear cache so it re-renders with new color
+                    elem.data.text_label.cache.deinit();
+                },
+                .rectangle => {
+                    // Update rectangle colors based on current color
+                    // This is a heuristic - we update red and green rectangles
+                    const current = elem.data.rectangle.color;
+                    if (current.r > current.g and current.r > current.b) {
+                        // Likely a "red" rectangle
+                        elem.data.rectangle.color = rect_red;
+                    } else if (current.g > current.r and current.g > current.b) {
+                        // Likely a "green" rectangle
+                        elem.data.rectangle.color = rect_green;
+                    }
+                    // Otherwise leave color as-is
+                },
+            }
+        }
+    }
+
     /// Convert screen coordinates to world coordinates using the camera
     pub fn screenToWorld(_: *SceneGraph, screen_pos: Vec2, cam: *const Camera) Vec2 {
         return cam.screenToWorld(screen_pos);

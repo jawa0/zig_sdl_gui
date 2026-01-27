@@ -293,9 +293,8 @@ pub fn main() !void {
         // Update color scheme if it changed
         if (action_mgr.scheme_changed) {
             colors = ColorScheme.get(action_mgr.scheme_type);
-            // Preserve FPS display if it exists, regenerate everything else
-            const preserved_ids: []const u32 = if (fps_element_id) |id| &[_]u32{id} else &[_]u32{};
-            try populateScene(&scene_graph, colors, font, preserved_ids);
+            // Update colors of existing elements instead of regenerating
+            scene_graph.updateSceneColors(colors.text, colors.rect_red, colors.rect_green, colors.rect_yellow);
             fps_needs_update = true; // Force FPS display update with new colors
         }
 

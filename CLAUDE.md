@@ -168,7 +168,7 @@ The application currently supports these user actions:
   - Recursive rendering: Renders from finest to coarsest levels for proper blending
   - Performance: Only renders visible grid lines, stops when spacing exceeds viewport by 10x
 - Window resize updates FPS/status line position to stay anchored to right edge
-- Color scheme changes regenerate cached text elements to update colors
+- Color scheme changes update element colors in place and clear text caches for re-render
 
 ## Platform Notes
 
