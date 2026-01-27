@@ -176,7 +176,25 @@ pub fn main() !void {
     defer if (cursor_nwse != null) c.SDL_FreeCursor(cursor_nwse);
     const cursor_nesw = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_SIZENESW); // top-right / bottom-left
     defer if (cursor_nesw != null) c.SDL_FreeCursor(cursor_nesw);
-    var current_cursor: enum { arrow, move, nwse, nesw } = .arrow;
+    const cursor_crosshair = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_CROSSHAIR);
+    defer if (cursor_crosshair != null) c.SDL_FreeCursor(cursor_crosshair);
+    var current_cursor: enum { arrow, move, nwse, nesw, crosshair } = .arrow;
+
+    // UI Button definitions
+    const ButtonRect = struct {
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+
+        fn contains(self: @This(), px: f32, py: f32) bool {
+            return px >= @as(f32, @floatFromInt(self.x)) and
+                px <= @as(f32, @floatFromInt(self.x + self.w)) and
+                py >= @as(f32, @floatFromInt(self.y)) and
+                py <= @as(f32, @floatFromInt(self.y + self.h));
+        }
+    };
+    const text_button = ButtonRect{ .x = 10, .y = 10, .w = 60, .h = 30 };
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -256,12 +274,115 @@ pub fn main() !void {
                 }
             }
 
+            // Handle Escape in text_placement mode to cancel
+            if (action_mgr.current_tool == .text_placement and event.type == c.SDL_KEYDOWN and
+                event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE)
+            {
+                action_mgr.current_tool = .selection;
+                if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                current_cursor = .arrow;
+                continue;
+            }
+
+            // Handle Text button click (works even while editing text)
+            if (event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
+                const click_x = @as(f32, @floatFromInt(event.button.x));
+                const click_y = @as(f32, @floatFromInt(event.button.y));
+
+                if (text_button.contains(click_x, click_y)) {
+                    // If currently editing text, finish it first
+                    if (action_mgr.text_edit.is_editing) {
+                        // Same logic as end_text_edit action
+                        if (action_mgr.text_edit.text_len > 0) {
+                            const text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+                            var has_non_whitespace = false;
+                            for (text) |ch| {
+                                if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                                    has_non_whitespace = true;
+                                    break;
+                                }
+                            }
+                            if (has_non_whitespace) {
+                                action_mgr.text_edit.should_create_element = true;
+                                @memcpy(action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.text_len], text);
+                                action_mgr.text_edit.finished_text_len = action_mgr.text_edit.text_len;
+                                action_mgr.text_edit.finished_world_pos = action_mgr.text_edit.world_pos;
+                            }
+                        }
+                        action_mgr.text_edit.is_editing = false;
+                        c.SDL_StopTextInput();
+                    }
+
+                    // Enter text placement mode
+                    action_mgr.current_tool = .text_placement;
+                    action_mgr.selection.clear();
+                    if (cursor_crosshair != null) c.SDL_SetCursor(cursor_crosshair);
+                    current_cursor = .crosshair;
+                    continue;
+                }
+            }
+
+            // Handle clicking on empty canvas while editing text - ends editing and starts drag select
+            if (action_mgr.text_edit.is_editing and event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
+                const click_x = @as(f32, @floatFromInt(event.button.x));
+                const click_y = @as(f32, @floatFromInt(event.button.y));
+
+                // Skip if clicking the text button (handled above)
+                if (!text_button.contains(click_x, click_y)) {
+                    // Check if clicking on empty canvas (no element hit)
+                    if (scene_graph.hitTest(click_x, click_y, &cam) == null) {
+                        // End text editing first
+                        if (action_mgr.text_edit.text_len > 0) {
+                            const text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
+                            var has_non_whitespace = false;
+                            for (text) |ch| {
+                                if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                                    has_non_whitespace = true;
+                                    break;
+                                }
+                            }
+                            if (has_non_whitespace) {
+                                action_mgr.text_edit.should_create_element = true;
+                                @memcpy(action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.text_len], text);
+                                action_mgr.text_edit.finished_text_len = action_mgr.text_edit.text_len;
+                                action_mgr.text_edit.finished_world_pos = action_mgr.text_edit.world_pos;
+                            }
+                        }
+                        action_mgr.text_edit.is_editing = false;
+                        action_mgr.current_tool = .selection;
+                        c.SDL_StopTextInput();
+
+                        // Start drag-select
+                        const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                        action_mgr.drag_select.is_active = true;
+                        action_mgr.drag_select.start_world = world_pos;
+                        action_mgr.drag_select.current_world = world_pos;
+                        action_mgr.selection.clear();
+
+                        continue;
+                    }
+                }
+            }
+
             // Handle mouse clicks based on current tool (when not editing text)
             if (!action_mgr.text_edit.is_editing and event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
                 const click_x = @as(f32, @floatFromInt(event.button.x));
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
-                if (action_mgr.current_tool == .selection) {
+                // text_placement mode: single-click places text
+                if (action_mgr.current_tool == .text_placement) {
+                    // Single-click places text in text_placement mode
+                    const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                    action_mgr.text_edit.world_pos = world_pos;
+                    action_mgr.text_edit.is_editing = true;
+                    action_mgr.text_edit.text_len = 0;
+                    action_mgr.text_edit.cursor_pos = 0;
+                    action_mgr.current_tool = .text_creation;
+                    c.SDL_StartTextInput();
+                    // Reset cursor to arrow
+                    if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                    current_cursor = .arrow;
+                } else if (action_mgr.current_tool == .selection) {
                     // Check for shift modifier
                     const mod_state = c.SDL_GetModState();
                     const shift_held = (mod_state & c.KMOD_SHIFT) != 0;
@@ -691,6 +812,11 @@ pub fn main() !void {
                     const world_pos = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                     var desired_cursor: @TypeOf(current_cursor) = .arrow;
 
+                    // In text_placement mode, always show crosshair
+                    if (action_mgr.current_tool == .text_placement) {
+                        desired_cursor = .crosshair;
+                    }
+
                     // First, check if hovering over resize handles (takes priority)
                     const selected_ids = action_mgr.selection.items();
                     if (selected_ids.len > 0) {
@@ -772,6 +898,7 @@ pub fn main() !void {
                             .move => if (cursor_move != null) c.SDL_SetCursor(cursor_move),
                             .nwse => if (cursor_nwse != null) c.SDL_SetCursor(cursor_nwse),
                             .nesw => if (cursor_nesw != null) c.SDL_SetCursor(cursor_nesw),
+                            .crosshair => if (cursor_crosshair != null) c.SDL_SetCursor(cursor_crosshair),
                         }
                         current_cursor = desired_cursor;
                     }
@@ -1215,6 +1342,49 @@ pub fn main() !void {
                     @intFromFloat(cursor_x),
                     cursor_y_int + cursor_height,
                 );
+            }
+        }
+
+        // Render UI buttons
+        {
+            // Text button background
+            const btn_color = if (action_mgr.current_tool == .text_placement)
+                c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 } // Highlighted when active
+            else
+                c.SDL_Color{ .r = 80, .g = 80, .b = 80, .a = 255 }; // Default gray
+
+            _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
+            var btn_rect = c.SDL_Rect{
+                .x = text_button.x,
+                .y = text_button.y,
+                .w = text_button.w,
+                .h = text_button.h,
+            };
+            _ = c.SDL_RenderFillRect(renderer, &btn_rect);
+
+            // Button border
+            _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+            _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
+
+            // Button text "Text"
+            _ = c.TTF_SetFontSize(font, 14);
+            const btn_text_surface = c.TTF_RenderText_Blended(font, "Text", c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 });
+            if (btn_text_surface != null) {
+                defer c.SDL_FreeSurface(btn_text_surface);
+                const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
+                if (btn_text_texture != null) {
+                    defer c.SDL_DestroyTexture(btn_text_texture);
+                    // Center text in button
+                    const text_x = text_button.x + @divTrunc(text_button.w - btn_text_surface.*.w, 2);
+                    const text_y = text_button.y + @divTrunc(text_button.h - btn_text_surface.*.h, 2);
+                    var text_rect = c.SDL_Rect{
+                        .x = text_x,
+                        .y = text_y,
+                        .w = btn_text_surface.*.w,
+                        .h = btn_text_surface.*.h,
+                    };
+                    _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
+                }
             }
         }
 
