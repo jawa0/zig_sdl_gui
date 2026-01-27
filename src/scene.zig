@@ -34,6 +34,14 @@ pub const BoundingBox = struct {
         return world_x >= self.x and world_x <= self.x + self.w and
                world_y >= self.y and world_y <= self.y + self.h;
     }
+
+    /// Test if this bounding box is fully contained within the given rectangle
+    pub fn isFullyWithin(self: BoundingBox, min_x: f32, min_y: f32, max_x: f32, max_y: f32) bool {
+        return self.x >= min_x and
+            self.y >= min_y and
+            self.x + self.w <= max_x and
+            self.y + self.h <= max_y;
+    }
 };
 
 pub const ElementType = enum {
@@ -1226,4 +1234,28 @@ test "ElementType.canScaleNonUniform returns correct values" {
 
     // Text cannot scale non-uniformly (must maintain aspect ratio)
     try expect(!ElementType.text_label.canScaleNonUniform());
+}
+
+test "BoundingBox.isFullyWithin" {
+    const bbox = BoundingBox{ .x = 10, .y = 20, .w = 30, .h = 40 };
+    // bbox spans x: [10, 40], y: [20, 60]
+
+    // Fully contained within larger rectangle
+    try expect(bbox.isFullyWithin(0, 0, 100, 100));
+    try expect(bbox.isFullyWithin(10, 20, 40, 60)); // Exactly matching bounds
+
+    // Partially outside (left edge)
+    try expect(!bbox.isFullyWithin(15, 0, 100, 100));
+
+    // Partially outside (right edge)
+    try expect(!bbox.isFullyWithin(0, 0, 35, 100));
+
+    // Partially outside (bottom edge)
+    try expect(!bbox.isFullyWithin(0, 25, 100, 100));
+
+    // Partially outside (top edge)
+    try expect(!bbox.isFullyWithin(0, 0, 100, 55));
+
+    // Completely outside
+    try expect(!bbox.isFullyWithin(100, 100, 200, 200));
 }

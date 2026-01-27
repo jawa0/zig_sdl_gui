@@ -458,9 +458,15 @@ pub fn main() !void {
                                 }
                             }
                         } else {
-                            // Empty space clicked - deselect all (unless shift held)
+                            // Empty space clicked - start drag-select
+                            const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                            action_mgr.drag_select.is_active = true;
+                            action_mgr.drag_select.start_world = world_pos;
+                            action_mgr.drag_select.current_world = world_pos;
+
+                            // Clear selection unless shift is held (shift preserves existing selection)
                             if (!shift_held) {
-                                _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                                action_mgr.selection.clear();
                             }
                         }
                     }
@@ -584,15 +590,43 @@ pub fn main() !void {
                             }
                         }
                     }
+                } else if (action_mgr.drag_select.is_active) {
+                    // Update drag-select rectangle and selection
+                    const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    action_mgr.drag_select.current_world = current_world;
+
+                    // Get normalized bounds of the drag-select rectangle
+                    const bounds = action_mgr.drag_select.getBounds();
+
+                    // Update selection: add elements fully within rectangle, remove those that aren't
+                    for (scene_graph.elements.items) |*elem| {
+                        if (!elem.visible) continue;
+                        if (elem.space != .world) continue; // Only select world-space elements
+
+                        const is_within = elem.bounding_box.isFullyWithin(
+                            bounds.min_x,
+                            bounds.min_y,
+                            bounds.max_x,
+                            bounds.max_y,
+                        );
+
+                        if (is_within) {
+                            action_mgr.selection.add(elem.id);
+                        } else {
+                            action_mgr.selection.remove(elem.id);
+                        }
+                    }
                 }
             }
 
-            // Handle mouse button up to end drag/resize
+            // Handle mouse button up to end drag/resize/drag-select
             if (event.type == c.SDL_MOUSEBUTTONUP and event.button.button == c.SDL_BUTTON_LEFT) {
                 if (action_mgr.drag.is_dragging) {
                     _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
                 } else if (action_mgr.resize.is_resizing) {
                     _ = action_mgr.handle(action.ActionParams{ .end_resize_element = {} }, &cam);
+                } else if (action_mgr.drag_select.is_active) {
+                    action_mgr.drag_select.is_active = false;
                 }
             }
 
@@ -714,6 +748,44 @@ pub fn main() !void {
         // Render grid (if visible)
         if (action_mgr.grid_visible) {
             world_grid.render(renderer, &cam, colors.grid, colors.background);
+        }
+
+        // Render drag-select rectangle (after grid, before elements)
+        if (action_mgr.drag_select.is_active) {
+            const bounds = action_mgr.drag_select.getBounds();
+
+            // Convert world bounds to screen coordinates
+            const world_top_left = Vec2{ .x = bounds.min_x, .y = bounds.max_y };
+            const screen_pos = cam.worldToScreen(world_top_left);
+            const screen_w = (bounds.max_x - bounds.min_x) * cam.zoom;
+            const screen_h = (bounds.max_y - bounds.min_y) * cam.zoom;
+
+            const x: i32 = @intFromFloat(screen_pos.x);
+            const y: i32 = @intFromFloat(screen_pos.y);
+            const w: i32 = @intFromFloat(screen_w);
+            const h: i32 = @intFromFloat(screen_h);
+
+            // Draw filled rectangle (semi-transparent)
+            _ = c.SDL_SetRenderDrawBlendMode(renderer, c.SDL_BLENDMODE_BLEND);
+            _ = c.SDL_SetRenderDrawColor(
+                renderer,
+                colors.selection_fill.r,
+                colors.selection_fill.g,
+                colors.selection_fill.b,
+                colors.selection_fill.a,
+            );
+            const fill_rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
+            _ = c.SDL_RenderFillRect(renderer, &fill_rect);
+
+            // Draw border (solid, using selection border color)
+            _ = c.SDL_SetRenderDrawColor(
+                renderer,
+                colors.border.r,
+                colors.border.g,
+                colors.border.b,
+                colors.border.a,
+            );
+            _ = c.SDL_RenderDrawRect(renderer, &fill_rect);
         }
 
         // Render all scene elements

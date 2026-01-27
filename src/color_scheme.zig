@@ -16,6 +16,7 @@ pub const ColorScheme = struct {
     rect_green: c.SDL_Color,
     rect_yellow: c.SDL_Color,
     grid: c.SDL_Color,
+    selection_fill: c.SDL_Color, // Semi-transparent fill for drag-select rectangle
 
     /// Get the color scheme for the given type
     pub fn get(scheme_type: SchemeType) ColorScheme {
@@ -28,6 +29,7 @@ pub const ColorScheme = struct {
                 .rect_green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 },
                 .rect_yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 },
                 .grid = c.SDL_Color{ .r = 180, .g = 180, .b = 180, .a = 255 }, // Medium grey
+                .selection_fill = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 50 }, // Light blue, semi-transparent
             },
             .dark => ColorScheme{
                 .background = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 }, // Black
@@ -37,6 +39,7 @@ pub const ColorScheme = struct {
                 .rect_green = c.SDL_Color{ .r = 50, .g = 255, .b = 50, .a = 255 },
                 .rect_yellow = c.SDL_Color{ .r = 255, .g = 255, .b = 50, .a = 255 },
                 .grid = c.SDL_Color{ .r = 40, .g = 40, .b = 40, .a = 255 }, // Dark grey
+                .selection_fill = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 50 }, // Light blue, semi-transparent
             },
         };
     }

@@ -177,6 +177,23 @@ pub const ResizeState = struct {
     start_bbox_height: f32 = 0,
 };
 
+/// Drag-select (marquee selection) state
+pub const DragSelectState = struct {
+    is_active: bool = false,
+    start_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+    current_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+
+    /// Get the normalized rectangle bounds (min/max regardless of drag direction)
+    pub fn getBounds(self: *const DragSelectState) struct { min_x: f32, min_y: f32, max_x: f32, max_y: f32 } {
+        return .{
+            .min_x = @min(self.start_world.x, self.current_world.x),
+            .min_y = @min(self.start_world.y, self.current_world.y),
+            .max_x = @max(self.start_world.x, self.current_world.x),
+            .max_y = @max(self.start_world.y, self.current_world.y),
+        };
+    }
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -190,6 +207,7 @@ pub const ActionHandler = struct {
     selection: SelectionSet = SelectionSet{},
     drag: DragState = DragState{},
     resize: ResizeState = ResizeState{},
+    drag_select: DragSelectState = DragSelectState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};
@@ -740,4 +758,51 @@ test "ResizeState multi-element resize" {
     try testing.expectEqual(@as(f32, 16), state.element_states[0].start_font_size);
     try testing.expectEqual(@as(f32, 80), state.element_states[1].start_rect_width);
     try testing.expectEqual(@as(f32, 24), state.element_states[2].start_font_size);
+}
+
+// ============================================================================
+// DragSelectState Tests
+// ============================================================================
+
+test "DragSelectState default initialization" {
+    const state = DragSelectState{};
+
+    try testing.expect(!state.is_active);
+    try testing.expectEqual(@as(f32, 0), state.start_world.x);
+    try testing.expectEqual(@as(f32, 0), state.start_world.y);
+    try testing.expectEqual(@as(f32, 0), state.current_world.x);
+    try testing.expectEqual(@as(f32, 0), state.current_world.y);
+}
+
+test "DragSelectState.getBounds normalizes coordinates" {
+    // Drag from top-right to bottom-left
+    var state = DragSelectState{
+        .is_active = true,
+        .start_world = Vec2{ .x = 100, .y = 200 },
+        .current_world = Vec2{ .x = 50, .y = 100 },
+    };
+
+    const bounds = state.getBounds();
+
+    // Should normalize to min/max regardless of drag direction
+    try testing.expectEqual(@as(f32, 50), bounds.min_x);
+    try testing.expectEqual(@as(f32, 100), bounds.min_y);
+    try testing.expectEqual(@as(f32, 100), bounds.max_x);
+    try testing.expectEqual(@as(f32, 200), bounds.max_y);
+}
+
+test "DragSelectState.getBounds with normal drag direction" {
+    // Drag from top-left to bottom-right
+    var state = DragSelectState{
+        .is_active = true,
+        .start_world = Vec2{ .x = 10, .y = 20 },
+        .current_world = Vec2{ .x = 100, .y = 200 },
+    };
+
+    const bounds = state.getBounds();
+
+    try testing.expectEqual(@as(f32, 10), bounds.min_x);
+    try testing.expectEqual(@as(f32, 20), bounds.min_y);
+    try testing.expectEqual(@as(f32, 100), bounds.max_x);
+    try testing.expectEqual(@as(f32, 200), bounds.max_y);
 }
