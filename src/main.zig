@@ -270,7 +270,7 @@ pub fn main() !void {
                     // Insert typed characters at cursor position
                     const text = std.mem.sliceTo(&event.text.text, 0);
                     action_mgr.text_edit.buffer.insert(text);
-                    action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                    action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                     continue;
                 }
                 if (event.type == c.SDL_KEYDOWN) {
@@ -284,19 +284,19 @@ pub fn main() !void {
                     // Backspace - delete character before cursor
                     if (scancode == c.SDL_SCANCODE_BACKSPACE) {
                         action_mgr.text_edit.buffer.deleteBackward();
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Delete - delete character at cursor
                     if (scancode == c.SDL_SCANCODE_DELETE) {
                         action_mgr.text_edit.buffer.deleteForward();
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Enter/Return - insert newline
                     if (scancode == c.SDL_SCANCODE_RETURN) {
                         action_mgr.text_edit.buffer.insertChar('\n');
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Arrow keys - cursor movement
@@ -307,7 +307,7 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorBackward();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_RIGHT) {
@@ -316,7 +316,7 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorForward();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_UP) {
@@ -325,7 +325,7 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorToPrevLine();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_DOWN) {
@@ -334,7 +334,7 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorToNextLine();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Home - beginning of line (Ctrl/Cmd+Home = beginning of buffer)
@@ -344,7 +344,7 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorToLineStart();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // End - end of line (Ctrl/Cmd+End = end of buffer)
@@ -354,19 +354,19 @@ pub fn main() !void {
                         } else {
                             action_mgr.text_edit.buffer.cursorToLineEnd();
                         }
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Ctrl+A - beginning of line (Emacs style, works on all platforms)
                     if (ctrl_held and scancode == c.SDL_SCANCODE_A) {
                         action_mgr.text_edit.buffer.cursorToLineStart();
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Ctrl+E - end of line (Emacs style, works on all platforms)
                     if (ctrl_held and scancode == c.SDL_SCANCODE_E) {
                         action_mgr.text_edit.buffer.cursorToLineEnd();
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                 }
@@ -544,7 +544,7 @@ pub fn main() !void {
 
                         // Move cursor to clicked position
                         action_mgr.text_edit.buffer.cursor = best_cursor_pos;
-                        action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
 
@@ -586,7 +586,7 @@ pub fn main() !void {
                     // Single-click places text in text_placement mode
                     const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
                     action_mgr.text_edit.startEditing(world_pos);
-                    action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                    action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                     action_mgr.current_tool = .text_creation;
                     // Clear selection - editing mode is separate from selection mode
                     action_mgr.selection.clear();
@@ -1221,7 +1221,7 @@ pub fn main() !void {
                                     // Start editing this text element
                                     const text = elem.data.text_label.text;
                                     action_mgr.text_edit.startEditingElement(elem_id, elem.transform.position, text);
-                                    action_mgr.text_edit.cursor_blink_start = c.SDL_GetTicks();
+                                    action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                                     action_mgr.current_tool = .text_creation;
                                     // Clear selection - editing mode is separate from selection mode
                                     action_mgr.selection.clear();
@@ -1649,10 +1649,7 @@ pub fn main() !void {
 
             // Render blinking cursor at current cursor position
             // Blink cycle resets when cursor moves for immediate feedback
-            const cursor_blink_rate = 500; // ms
-            const time_ms = c.SDL_GetTicks();
-            const time_since_move = time_ms - action_mgr.text_edit.cursor_blink_start;
-            if ((time_since_move / cursor_blink_rate) % 2 == 0) {
+            if (action_mgr.text_edit.blink.isVisible(c.SDL_GetTicks())) {
                 const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
                 const cursor_pos = action_mgr.text_edit.buffer.cursor;
 

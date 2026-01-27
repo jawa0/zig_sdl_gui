@@ -94,14 +94,28 @@ pub const SelectionSet = struct {
     }
 };
 
+/// Animation for blinking cursor or similar on/off cycles
+pub const BlinkAnimation = struct {
+    start_time: u32 = 0,
+    period_ms: u32 = 500,
+
+    pub fn restart(self: *BlinkAnimation, now: u32) void {
+        self.start_time = now;
+    }
+
+    pub fn isVisible(self: BlinkAnimation, now: u32) bool {
+        return ((now - self.start_time) / self.period_ms) % 2 == 0;
+    }
+};
+
 /// Text editing state
 pub const TextEditState = struct {
     is_editing: bool = false,
     world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
     buffer: TextBuffer = TextBuffer.init(),
 
-    /// Timestamp when cursor last moved (for blink cycle reset)
-    cursor_blink_start: u32 = 0,
+    /// Cursor blink animation
+    blink: BlinkAnimation = BlinkAnimation{},
 
     /// Element ID being edited (null if creating new text)
     editing_element_id: ?u32 = null,
