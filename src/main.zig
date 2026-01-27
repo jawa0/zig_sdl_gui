@@ -511,7 +511,7 @@ pub fn main() !void {
                     width_scale = @max(0.1, @min(10.0, width_scale));
                     height_scale = @max(0.1, @min(10.0, height_scale));
 
-                    // Uniform scale for text (maintains aspect ratio)
+                    // Uniform scale (maintains aspect ratio)
                     var uniform_scale = @max(width_scale, height_scale);
 
                     // Add hysteresis to uniform scale to prevent oscillation
@@ -523,13 +523,24 @@ pub fn main() !void {
                         action_mgr.resize.last_scale_factor = uniform_scale;
                     }
 
+                    // Check if ANY element in the selection requires uniform scaling.
+                    // If so, the entire selection must scale uniformly to preserve relative positions.
+                    var selection_requires_uniform = false;
+                    for (action_mgr.resize.element_states[0..action_mgr.resize.element_count]) |elem_state| {
+                        if (scene_graph.findElement(elem_state.element_id)) |elem| {
+                            if (!elem.element_type.canScaleNonUniform()) {
+                                selection_requires_uniform = true;
+                                break;
+                            }
+                        }
+                    }
+
                     // Apply resize to all elements in the selection
                     for (action_mgr.resize.element_states[0..action_mgr.resize.element_count]) |elem_state| {
                         if (scene_graph.findElement(elem_state.element_id)) |elem| {
-                            // Choose scale factors based on element type
-                            // Rectangles: independent width/height scaling (can stretch)
-                            // Text: uniform scaling (maintains aspect ratio)
-                            const use_uniform = elem.element_type == .text_label;
+                            // Use uniform scaling if ANY element in selection requires it,
+                            // otherwise allow non-uniform scaling for element types that support it
+                            const use_uniform = selection_requires_uniform or !elem.element_type.canScaleNonUniform();
                             const sx = if (use_uniform) uniform_scale else width_scale;
                             const sy = if (use_uniform) uniform_scale else height_scale;
 

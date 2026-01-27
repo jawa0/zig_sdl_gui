@@ -34,6 +34,17 @@ pub const ElementType = enum {
     text_label,
     rectangle,
     // Future: circle, image, etc.
+
+    /// Returns true if this element type can be scaled non-uniformly (independent width/height).
+    /// Elements that cannot scale non-uniformly (like text) require uniform scaling to maintain
+    /// their aspect ratio. When a selection contains ANY element requiring uniform scaling,
+    /// the entire selection must scale uniformly to preserve relative positioning.
+    pub fn canScaleNonUniform(self: ElementType) bool {
+        return switch (self) {
+            .rectangle => true,
+            .text_label => false,
+        };
+    }
 };
 
 pub const CoordinateSpace = enum {
@@ -1140,4 +1151,12 @@ test "Single line text vs multiline text bounding boxes" {
     // But different bottoms
     try expectEqual(84, single_elem.bounding_box.y); // 100 - 16
     try expectEqual(68, multi_elem.bounding_box.y); // 100 - 32
+}
+
+test "ElementType.canScaleNonUniform returns correct values" {
+    // Rectangles can scale non-uniformly (stretch in width or height independently)
+    try expect(ElementType.rectangle.canScaleNonUniform());
+
+    // Text cannot scale non-uniformly (must maintain aspect ratio)
+    try expect(!ElementType.text_label.canScaleNonUniform());
 }
