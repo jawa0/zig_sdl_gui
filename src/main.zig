@@ -257,7 +257,7 @@ pub fn main() !void {
 
                     // Check for handle click on union bounding box (works for single or multi-select)
                     var handle_clicked = false;
-                    const selected_ids_for_handles = action_mgr.getSelectedIds();
+                    const selected_ids_for_handles = action_mgr.selection.items();
 
                     if (selected_ids_for_handles.len > 0) {
                         // Calculate union bounding box of all selected elements
@@ -726,7 +726,7 @@ pub fn main() !void {
         }
 
         // Render selection bounding boxes for all selected elements
-        const selected_ids = action_mgr.getSelectedIds();
+        const selected_ids = action_mgr.selection.items();
         const selection_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Blue
         const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
