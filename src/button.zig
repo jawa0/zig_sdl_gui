@@ -17,6 +17,7 @@ pub const IconType = enum {
 /// Icon texture cache - must be initialized before rendering buttons with icons
 pub const IconCache = struct {
     cursor_arrow_texture: ?*c.SDL_Texture = null,
+    text_t_texture: ?*c.SDL_Texture = null,
     renderer: ?*c.SDL_Renderer = null,
 
     pub fn init(renderer: *c.SDL_Renderer) IconCache {
@@ -25,13 +26,22 @@ pub const IconCache = struct {
         };
 
         // Load cursor arrow icon
-        const surface = c.IMG_Load("assets/icons/cursor.png");
-        if (surface != null) {
-            defer c.SDL_FreeSurface(surface);
-            cache.cursor_arrow_texture = c.SDL_CreateTextureFromSurface(renderer, surface);
+        const cursor_surface = c.IMG_Load("assets/icons/cursor.png");
+        if (cursor_surface != null) {
+            defer c.SDL_FreeSurface(cursor_surface);
+            cache.cursor_arrow_texture = c.SDL_CreateTextureFromSurface(renderer, cursor_surface);
             if (cache.cursor_arrow_texture != null) {
-                // Enable alpha blending for the texture
                 _ = c.SDL_SetTextureBlendMode(cache.cursor_arrow_texture, c.SDL_BLENDMODE_BLEND);
+            }
+        }
+
+        // Load text icon
+        const text_surface = c.IMG_Load("assets/icons/text.png");
+        if (text_surface != null) {
+            defer c.SDL_FreeSurface(text_surface);
+            cache.text_t_texture = c.SDL_CreateTextureFromSurface(renderer, text_surface);
+            if (cache.text_t_texture != null) {
+                _ = c.SDL_SetTextureBlendMode(cache.text_t_texture, c.SDL_BLENDMODE_BLEND);
             }
         }
 
@@ -42,6 +52,10 @@ pub const IconCache = struct {
         if (self.cursor_arrow_texture != null) {
             c.SDL_DestroyTexture(self.cursor_arrow_texture);
             self.cursor_arrow_texture = null;
+        }
+        if (self.text_t_texture != null) {
+            c.SDL_DestroyTexture(self.text_t_texture);
+            self.text_t_texture = null;
         }
     }
 };
@@ -157,7 +171,21 @@ pub const Button = struct {
                 _ = c.SDL_RenderDrawLine(renderer, stem_x + 1, stem_start_y, stem_x + 7, stem_start_y + 6);
             },
             .text_t => {
-                // Draw "T" glyph using larger font
+                // Try to use cached PNG texture first
+                if (icon_cache) |cache| {
+                    if (cache.text_t_texture) |texture| {
+                        var dest_rect = c.SDL_Rect{
+                            .x = center_x - @divTrunc(icon_size, 2),
+                            .y = center_y - @divTrunc(icon_size, 2),
+                            .w = icon_size,
+                            .h = icon_size,
+                        };
+                        _ = c.SDL_RenderCopy(renderer, texture, null, &dest_rect);
+                        return;
+                    }
+                }
+
+                // Fallback: draw "T" glyph using font if texture not available
                 _ = c.TTF_SetFontSize(font, 20);
                 const text_surface = c.TTF_RenderText_Blended(font, "T", content_color);
                 if (text_surface != null) {

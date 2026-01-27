@@ -250,3 +250,4 @@ Should show something like `:0` or `:0.0`.
 ## Attributions
 
 - <a href="https://www.flaticon.com/free-icons/iconography" title="iconography icons">Iconography icons created by Shashank Singh - Flaticon</a>
+- <a href="https://www.flaticon.com/free-icons/text" title="text icons">Text icons created by Freepik - Flaticon</a>
