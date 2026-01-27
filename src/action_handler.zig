@@ -28,11 +28,28 @@ pub const TextEditState = struct {
     finished_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
 };
 
+/// Per-element state at drag start (for multi-select drag)
+pub const ElementDragState = struct {
+    element_id: u32 = 0,
+    start_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    start_bbox_x: f32 = 0,
+    start_bbox_y: f32 = 0,
+};
+
+/// Maximum elements in a drag operation
+pub const MAX_DRAG_ELEMENTS: usize = 256;
+
 /// Drag operation state
 pub const DragState = struct {
     is_dragging: bool = false,
-    element_id: u32 = 0,
     start_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+
+    // Per-element start states for multi-select drag
+    element_states: [MAX_DRAG_ELEMENTS]ElementDragState = undefined,
+    element_count: usize = 0,
+
+    // Legacy single-element fields (kept for compatibility)
+    element_id: u32 = 0,
     element_start_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
 };
 

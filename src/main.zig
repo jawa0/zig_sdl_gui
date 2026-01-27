@@ -344,21 +344,49 @@ pub fn main() !void {
 
                             handle_clicked = true;
                         } else {
-                            // Not on handle, check if clicking within any selected element (for dragging)
+                            // Not on handle, check if clicking within the union bounding box (for dragging)
                             const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+
+                            // Calculate union bounding box in world space
+                            var drag_union_min_x: f32 = std.math.floatMax(f32);
+                            var drag_union_min_y: f32 = std.math.floatMax(f32);
+                            var drag_union_max_x: f32 = -std.math.floatMax(f32);
+                            var drag_union_max_y: f32 = -std.math.floatMax(f32);
+
                             for (selected_ids_for_handles) |sel_id| {
                                 if (scene_graph.findElement(sel_id)) |elem| {
-                                    if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
-                                        // Start dragging
-                                        _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
-                                            .screen_x = click_x,
-                                            .screen_y = click_y,
-                                        } }, &cam);
-                                        action_mgr.drag.element_start_pos = elem.transform.position;
-                                        handle_clicked = true;
-                                        break;
+                                    const bbox = elem.bounding_box;
+                                    drag_union_min_x = @min(drag_union_min_x, bbox.x);
+                                    drag_union_min_y = @min(drag_union_min_y, bbox.y);
+                                    drag_union_max_x = @max(drag_union_max_x, bbox.x + bbox.w);
+                                    drag_union_max_y = @max(drag_union_max_y, bbox.y + bbox.h);
+                                }
+                            }
+
+                            // Check if click is within union bounding box
+                            if (world_pos.x >= drag_union_min_x and world_pos.x <= drag_union_max_x and
+                                world_pos.y >= drag_union_min_y and world_pos.y <= drag_union_max_y)
+                            {
+                                // Start dragging all selected elements
+                                action_mgr.drag.is_dragging = true;
+                                action_mgr.drag.start_world_pos = world_pos;
+
+                                // Store all element start positions
+                                action_mgr.drag.element_count = 0;
+                                for (selected_ids_for_handles) |sel_id| {
+                                    if (scene_graph.findElement(sel_id)) |elem| {
+                                        if (action_mgr.drag.element_count < action_handler.MAX_DRAG_ELEMENTS) {
+                                            var state = &action_mgr.drag.element_states[action_mgr.drag.element_count];
+                                            state.element_id = sel_id;
+                                            state.start_pos = elem.transform.position;
+                                            state.start_bbox_x = elem.bounding_box.x;
+                                            state.start_bbox_y = elem.bounding_box.y;
+                                            action_mgr.drag.element_count += 1;
+                                        }
                                     }
                                 }
+
+                                handle_clicked = true;
                             }
                         }
                     }
@@ -374,14 +402,19 @@ pub fn main() !void {
 
                             // Only start dragging if not shift+clicking (shift is for selection only)
                             if (!shift_held) {
-                                _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
-                                    .screen_x = click_x,
-                                    .screen_y = click_y,
-                                } }, &cam);
+                                const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                                action_mgr.drag.is_dragging = true;
+                                action_mgr.drag.start_world_pos = world_pos;
 
-                                // Store element's current position for dragging
+                                // Store the clicked element's position for dragging
+                                action_mgr.drag.element_count = 0;
                                 if (scene_graph.findElement(hit_id)) |elem| {
-                                    action_mgr.drag.element_start_pos = elem.transform.position;
+                                    var state = &action_mgr.drag.element_states[0];
+                                    state.element_id = hit_id;
+                                    state.start_pos = elem.transform.position;
+                                    state.start_bbox_x = elem.bounding_box.x;
+                                    state.start_bbox_y = elem.bounding_box.y;
+                                    action_mgr.drag.element_count = 1;
                                 }
                             }
                         } else {
@@ -400,20 +433,24 @@ pub fn main() !void {
                 const mouse_y = @as(f32, @floatFromInt(event.motion.y));
 
                 if (action_mgr.drag.is_dragging) {
-                    // Update element position (bbox moves with it, dimensions unchanged)
-                    if (scene_graph.findElement(action_mgr.drag.element_id)) |elem| {
-                        const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
-                        const delta = Vec2{
-                            .x = current_world.x - action_mgr.drag.start_world_pos.x,
-                            .y = current_world.y - action_mgr.drag.start_world_pos.y,
-                        };
-                        elem.transform.position = Vec2{
-                            .x = action_mgr.drag.element_start_pos.x + delta.x,
-                            .y = action_mgr.drag.element_start_pos.y + delta.y,
-                        };
-                        // Update bbox position (dimensions stay the same - authoritative!)
-                        elem.bounding_box.x = elem.transform.position.x;
-                        elem.bounding_box.y = elem.transform.position.y - elem.bounding_box.h;
+                    // Calculate drag delta in world space
+                    const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    const delta = Vec2{
+                        .x = current_world.x - action_mgr.drag.start_world_pos.x,
+                        .y = current_world.y - action_mgr.drag.start_world_pos.y,
+                    };
+
+                    // Move all selected elements by the same delta (rigid body movement)
+                    for (action_mgr.drag.element_states[0..action_mgr.drag.element_count]) |elem_state| {
+                        if (scene_graph.findElement(elem_state.element_id)) |elem| {
+                            elem.transform.position = Vec2{
+                                .x = elem_state.start_pos.x + delta.x,
+                                .y = elem_state.start_pos.y + delta.y,
+                            };
+                            // Update bbox position (dimensions stay the same - authoritative!)
+                            elem.bounding_box.x = elem_state.start_bbox_x + delta.x;
+                            elem.bounding_box.y = elem_state.start_bbox_y + delta.y;
+                        }
                     }
                 } else if (action_mgr.resize.is_resizing) {
                     // Multi-select resize with opposite corner as anchor
