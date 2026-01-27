@@ -15,6 +15,12 @@ pub const Action = enum {
     end_text_edit,
     select_element,
     deselect_all,
+    begin_drag_element,
+    drag_element,
+    end_drag_element,
+    begin_resize_element,
+    resize_element,
+    end_resize_element,
     // Future actions can be added here without changing input handling code
 };
 
@@ -31,6 +37,12 @@ pub const ActionParams = union(Action) {
     end_text_edit: void,
     select_element: SelectParams,
     deselect_all: void,
+    begin_drag_element: DragParams,
+    drag_element: DragParams,
+    end_drag_element: void,
+    begin_resize_element: ResizeParams,
+    resize_element: ResizeParams,
+    end_resize_element: void,
 };
 
 pub const PanParams = struct {
@@ -54,4 +66,25 @@ pub const TextEditParams = struct {
 pub const SelectParams = struct {
     /// Element ID to select
     element_id: u32,
+};
+
+pub const DragParams = struct {
+    /// Screen position of mouse
+    screen_x: f32,
+    screen_y: f32,
+};
+
+pub const ResizeHandle = enum {
+    top_left,
+    top_right,
+    bottom_left,
+    bottom_right,
+};
+
+pub const ResizeParams = struct {
+    /// Screen position of mouse
+    screen_x: f32,
+    screen_y: f32,
+    /// Which handle is being dragged
+    handle: ResizeHandle,
 };

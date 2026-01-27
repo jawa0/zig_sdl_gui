@@ -11,6 +11,7 @@ const Camera = camera.Camera;
 const Vec2 = math.Vec2;
 const SchemeType = color_scheme.SchemeType;
 const Tool = tool.Tool;
+const ResizeHandle = action.ResizeHandle;
 
 /// Text editing state
 pub const TextEditState = struct {
@@ -27,6 +28,28 @@ pub const TextEditState = struct {
     finished_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
 };
 
+/// Drag operation state
+pub const DragState = struct {
+    is_dragging: bool = false,
+    element_id: u32 = 0,
+    start_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    element_start_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+};
+
+/// Resize operation state
+pub const ResizeState = struct {
+    is_resizing: bool = false,
+    element_id: u32 = 0,
+    handle: ResizeHandle = .top_left,
+    start_world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    element_start_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    element_start_scale: Vec2 = Vec2{ .x = 1, .y = 1 },
+    element_start_font_size: f32 = 16,
+    opposite_corner: Vec2 = Vec2{ .x = 0, .y = 0 }, // World position of opposite corner (anchor point)
+    start_bbox_width: f32 = 0,
+    start_bbox_height: f32 = 0,
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -38,6 +61,8 @@ pub const ActionHandler = struct {
     text_edit: TextEditState = TextEditState{},
     current_tool: Tool = .selection,
     selected_element_id: ?u32 = null,
+    drag: DragState = DragState{},
+    resize: ResizeState = ResizeState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};
@@ -152,6 +177,43 @@ pub const ActionHandler = struct {
 
             .deselect_all => {
                 self.selected_element_id = null;
+            },
+
+            .begin_drag_element => |drag| {
+                if (self.selected_element_id) |elem_id| {
+                    self.drag.is_dragging = true;
+                    self.drag.element_id = elem_id;
+                    const screen_pos = Vec2{ .x = drag.screen_x, .y = drag.screen_y };
+                    self.drag.start_world_pos = cam.screenToWorld(screen_pos);
+                    // element_start_pos will be set in main.zig with actual element data
+                }
+            },
+
+            .drag_element => {
+                // Actual position update happens in main.zig with scene graph access
+            },
+
+            .end_drag_element => {
+                self.drag.is_dragging = false;
+            },
+
+            .begin_resize_element => |resize| {
+                if (self.selected_element_id) |elem_id| {
+                    self.resize.is_resizing = true;
+                    self.resize.element_id = elem_id;
+                    self.resize.handle = resize.handle;
+                    const screen_pos = Vec2{ .x = resize.screen_x, .y = resize.screen_y };
+                    self.resize.start_world_pos = cam.screenToWorld(screen_pos);
+                    // element_start_pos, scale, and font_size will be set in main.zig
+                }
+            },
+
+            .resize_element => {
+                // Actual resize update happens in main.zig with scene graph access
+            },
+
+            .end_resize_element => {
+                self.resize.is_resizing = false;
             },
         }
 

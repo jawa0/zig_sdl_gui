@@ -235,14 +235,247 @@ pub fn main() !void {
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
                 if (action_mgr.current_tool == .selection) {
-                    // Perform hit test (converts screen coords to world coords internally)
-                    if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
-                        // Element was clicked - select it
-                        _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{ .element_id = hit_id } }, &cam);
-                    } else {
-                        // Empty space clicked - deselect all
-                        _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                    // Check for handle click first (if element is selected)
+                    var handle_clicked = false;
+                    if (action_mgr.selected_element_id) |sel_id| {
+                        if (scene_graph.findElement(sel_id)) |elem| {
+                            // Calculate handle positions
+                            const world_bbox = elem.bounding_box;
+                            const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
+                            const screen_pos = cam.worldToScreen(world_top_left);
+                            const screen_w = world_bbox.w * cam.zoom;
+                            const screen_h = world_bbox.h * cam.zoom;
+
+                            const handle_hit_size: f32 = 12.0; // Slightly larger for easier clicking
+
+                            // Helper to check if point is in handle
+                            const isInHandle = struct {
+                                fn check(px: f32, py: f32, hx: f32, hy: f32, size: f32) bool {
+                                    const half = size / 2.0;
+                                    return px >= hx - half and px <= hx + half and
+                                           py >= hy - half and py <= hy + half;
+                                }
+                            }.check;
+
+                            // Test each corner handle
+                            if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y, handle_hit_size)) {
+                                // Top-left handle
+                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
+                                    .screen_x = click_x,
+                                    .screen_y = click_y,
+                                    .handle = .top_left,
+                                } }, &cam);
+                                handle_clicked = true;
+                            } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y, handle_hit_size)) {
+                                // Top-right handle
+                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
+                                    .screen_x = click_x,
+                                    .screen_y = click_y,
+                                    .handle = .top_right,
+                                } }, &cam);
+                                handle_clicked = true;
+                            } else if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y + screen_h, handle_hit_size)) {
+                                // Bottom-left handle
+                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
+                                    .screen_x = click_x,
+                                    .screen_y = click_y,
+                                    .handle = .bottom_left,
+                                } }, &cam);
+                                handle_clicked = true;
+                            } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y + screen_h, handle_hit_size)) {
+                                // Bottom-right handle
+                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
+                                    .screen_x = click_x,
+                                    .screen_y = click_y,
+                                    .handle = .bottom_right,
+                                } }, &cam);
+                                handle_clicked = true;
+                            } else {
+                                // Not on handle, check if on selected element itself (for dragging)
+                                const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                                if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                                    // Start dragging the element
+                                    _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
+                                        .screen_x = click_x,
+                                        .screen_y = click_y,
+                                    } }, &cam);
+                                    // Store element's current position
+                                    action_mgr.drag.element_start_pos = elem.transform.position;
+                                    handle_clicked = true;
+                                }
+                            }
+
+                            // Store element state for resize
+                            if (action_mgr.resize.is_resizing) {
+                                action_mgr.resize.element_start_pos = elem.transform.position;
+                                action_mgr.resize.element_start_scale = elem.transform.scale;
+                                action_mgr.resize.start_bbox_width = world_bbox.w;
+                                action_mgr.resize.start_bbox_height = world_bbox.h;
+
+                                if (elem.element_type == .text_label) {
+                                    action_mgr.resize.element_start_font_size = elem.data.text_label.font_size;
+                                }
+
+                                // Calculate opposite corner position (anchor point that doesn't move)
+                                switch (action_mgr.resize.handle) {
+                                    .top_left => {
+                                        // Opposite is bottom-right
+                                        action_mgr.resize.opposite_corner = Vec2{
+                                            .x = world_bbox.x + world_bbox.w,
+                                            .y = world_bbox.y,
+                                        };
+                                    },
+                                    .top_right => {
+                                        // Opposite is bottom-left
+                                        action_mgr.resize.opposite_corner = Vec2{
+                                            .x = world_bbox.x,
+                                            .y = world_bbox.y,
+                                        };
+                                    },
+                                    .bottom_left => {
+                                        // Opposite is top-right
+                                        action_mgr.resize.opposite_corner = Vec2{
+                                            .x = world_bbox.x + world_bbox.w,
+                                            .y = world_bbox.y + world_bbox.h,
+                                        };
+                                    },
+                                    .bottom_right => {
+                                        // Opposite is top-left
+                                        action_mgr.resize.opposite_corner = Vec2{
+                                            .x = world_bbox.x,
+                                            .y = world_bbox.y + world_bbox.h,
+                                        };
+                                    },
+                                }
+                            }
+                        }
                     }
+
+                    // If no handle was clicked, do normal hit test
+                    if (!handle_clicked) {
+                        if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
+                            // Element was clicked - select it and start dragging immediately
+                            _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{ .element_id = hit_id } }, &cam);
+
+                            // Also start dragging so user can immediately drag after clicking
+                            _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
+                                .screen_x = click_x,
+                                .screen_y = click_y,
+                            } }, &cam);
+
+                            // Store element's current position for dragging
+                            if (scene_graph.findElement(hit_id)) |elem| {
+                                action_mgr.drag.element_start_pos = elem.transform.position;
+                            }
+                        } else {
+                            // Empty space clicked - deselect all
+                            _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                        }
+                    }
+                }
+            }
+
+            // Handle mouse motion for dragging/resizing
+            if (event.type == c.SDL_MOUSEMOTION) {
+                const mouse_x = @as(f32, @floatFromInt(event.motion.x));
+                const mouse_y = @as(f32, @floatFromInt(event.motion.y));
+
+                if (action_mgr.drag.is_dragging) {
+                    // Update element position
+                    if (scene_graph.findElement(action_mgr.drag.element_id)) |elem| {
+                        const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                        const delta = Vec2{
+                            .x = current_world.x - action_mgr.drag.start_world_pos.x,
+                            .y = current_world.y - action_mgr.drag.start_world_pos.y,
+                        };
+                        elem.transform.position = Vec2{
+                            .x = action_mgr.drag.element_start_pos.x + delta.x,
+                            .y = action_mgr.drag.element_start_pos.y + delta.y,
+                        };
+                        // Update bounding box
+                        scene_graph.updateElementBoundingBox(elem.id, font);
+                    }
+                } else if (action_mgr.resize.is_resizing) {
+                    // Update element scale/size - handle stays locked under cursor
+                    if (scene_graph.findElement(action_mgr.resize.element_id)) |elem| {
+                        // Current cursor position in world space
+                        const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+
+                        // Calculate new width and height from cursor to opposite corner
+                        const new_width = @abs(current_world.x - action_mgr.resize.opposite_corner.x);
+                        const new_height = @abs(current_world.y - action_mgr.resize.opposite_corner.y);
+
+                        // Calculate scale factor maintaining aspect ratio
+                        // Use the larger dimension change to maintain proportions
+                        const width_scale = new_width / action_mgr.resize.start_bbox_width;
+                        const height_scale = new_height / action_mgr.resize.start_bbox_height;
+                        var scale_factor = @max(width_scale, height_scale);
+
+                        // Clamp scale to reasonable range
+                        scale_factor = @max(0.1, @min(10.0, scale_factor));
+
+                        // Apply scale
+                        if (elem.element_type == .text_label) {
+                            // For text, update font size
+                            elem.data.text_label.font_size = action_mgr.resize.element_start_font_size * scale_factor;
+                            elem.data.text_label.cache.deinit(); // Clear cache for re-render
+                        } else {
+                            // For other elements, update scale
+                            elem.transform.scale = Vec2{
+                                .x = action_mgr.resize.element_start_scale.x * scale_factor,
+                                .y = action_mgr.resize.element_start_scale.y * scale_factor,
+                            };
+                        }
+
+                        // Update bounding box to get new dimensions
+                        scene_graph.updateElementBoundingBox(elem.id, font);
+
+                        // Update element position to keep opposite corner fixed
+                        // Calculate where the element position should be to maintain opposite corner
+                        const new_bbox = elem.bounding_box;
+                        switch (action_mgr.resize.handle) {
+                            .top_left => {
+                                // Opposite corner is bottom-right
+                                elem.transform.position = Vec2{
+                                    .x = action_mgr.resize.opposite_corner.x - new_bbox.w,
+                                    .y = action_mgr.resize.opposite_corner.y + new_bbox.h,
+                                };
+                            },
+                            .top_right => {
+                                // Opposite corner is bottom-left
+                                elem.transform.position = Vec2{
+                                    .x = action_mgr.resize.opposite_corner.x,
+                                    .y = action_mgr.resize.opposite_corner.y + new_bbox.h,
+                                };
+                            },
+                            .bottom_left => {
+                                // Opposite corner is top-right
+                                elem.transform.position = Vec2{
+                                    .x = action_mgr.resize.opposite_corner.x - new_bbox.w,
+                                    .y = action_mgr.resize.opposite_corner.y,
+                                };
+                            },
+                            .bottom_right => {
+                                // Opposite corner is top-left
+                                elem.transform.position = Vec2{
+                                    .x = action_mgr.resize.opposite_corner.x,
+                                    .y = action_mgr.resize.opposite_corner.y,
+                                };
+                            },
+                        }
+
+                        // Update bounding box again after position change
+                        scene_graph.updateElementBoundingBox(elem.id, font);
+                    }
+                }
+            }
+
+            // Handle mouse button up to end drag/resize
+            if (event.type == c.SDL_MOUSEBUTTONUP and event.button.button == c.SDL_BUTTON_LEFT) {
+                if (action_mgr.drag.is_dragging) {
+                    _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
+                } else if (action_mgr.resize.is_resizing) {
+                    _ = action_mgr.handle(action.ActionParams{ .end_resize_element = {} }, &cam);
                 }
             }
 
@@ -410,25 +643,57 @@ pub fn main() !void {
                 const screen_h = world_bbox.h * cam.zoom;
 
                 const selection_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Blue
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
-                const border_thickness: f32 = 2.0;
                 const x: i32 = @intFromFloat(screen_pos.x);
                 const y: i32 = @intFromFloat(screen_pos.y);
                 const w: i32 = @intFromFloat(screen_w);
                 const h: i32 = @intFromFloat(screen_h);
 
-                // Draw rectangle border
-                var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = @intFromFloat(border_thickness) };
-                _ = c.SDL_RenderFillRect(renderer, &rect); // Top
-                rect.y = y + h - @as(i32, @intFromFloat(border_thickness));
-                _ = c.SDL_RenderFillRect(renderer, &rect); // Bottom
-                rect.y = y;
-                rect.w = @intFromFloat(border_thickness);
-                rect.h = h;
-                _ = c.SDL_RenderFillRect(renderer, &rect); // Left
-                rect.x = x + w - @as(i32, @intFromFloat(border_thickness));
-                _ = c.SDL_RenderFillRect(renderer, &rect); // Right
+                // Draw selection box with 1px stroke
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
+                _ = c.SDL_RenderDrawRect(renderer, &rect);
+
+                // Draw resize handles (4 corners) - white fill with blue stroke
+                const handle_size: i32 = 8;
+                const handle_half: i32 = handle_size / 2;
+
+                // Top-left handle
+                var handle = c.SDL_Rect{
+                    .x = x - handle_half,
+                    .y = y - handle_half,
+                    .w = handle_size,
+                    .h = handle_size,
+                };
+                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                _ = c.SDL_RenderFillRect(renderer, &handle);
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+                // Top-right handle
+                handle.x = x + w - handle_half;
+                handle.y = y - handle_half;
+                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                _ = c.SDL_RenderFillRect(renderer, &handle);
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+                // Bottom-left handle
+                handle.x = x - handle_half;
+                handle.y = y + h - handle_half;
+                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                _ = c.SDL_RenderFillRect(renderer, &handle);
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+                // Bottom-right handle
+                handle.x = x + w - handle_half;
+                handle.y = y + h - handle_half;
+                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                _ = c.SDL_RenderFillRect(renderer, &handle);
+                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                _ = c.SDL_RenderDrawRect(renderer, &handle);
             }
         }
 
