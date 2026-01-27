@@ -12,7 +12,9 @@ pub const c = if (builtin.os.tag == .macos) @cImport({
     @cDefine("__GNUC_PATCHLEVEL__", "1");
     @cInclude("SDL2/SDL.h");
     @cInclude("SDL2/SDL_ttf.h");
+    @cInclude("SDL2/SDL_image.h");
 }) else @cImport({
     @cInclude("SDL2/SDL.h");
     @cInclude("SDL2/SDL_ttf.h");
+    @cInclude("SDL2/SDL_image.h");
 });

@@ -246,3 +246,7 @@ echo $DISPLAY
 ```
 
 Should show something like `:0` or `:0.0`.
+
+## Attributions
+
+- <a href="https://www.flaticon.com/free-icons/iconography" title="iconography icons">Iconography icons created by Shashank Singh - Flaticon</a>

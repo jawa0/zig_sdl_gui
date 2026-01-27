@@ -65,20 +65,29 @@ pub fn build(b: *std.Build) void {
         addLibraryPath(exe, b.path("libs/SDL2_ttf/lib/x64"));
         linkSystemLibrary(exe, "SDL2_ttf");
 
+        // Windows: use bundled SDL2_image libraries
+        addIncludePath(exe, b.path("libs/SDL2_image/include"));
+        addLibraryPath(exe, b.path("libs/SDL2_image/lib/x64"));
+        linkSystemLibrary(exe, "SDL2_image");
+
         // Copy DLLs to output directory
         const install_sdl2_dll = b.addInstallBinFile(b.path("libs/SDL2/lib/x64/SDL2.dll"), "SDL2.dll");
         const install_ttf_dll = b.addInstallBinFile(b.path("libs/SDL2_ttf/lib/x64/SDL2_ttf.dll"), "SDL2_ttf.dll");
+        const install_image_dll = b.addInstallBinFile(b.path("libs/SDL2_image/lib/x64/SDL2_image.dll"), "SDL2_image.dll");
         b.getInstallStep().dependOn(&install_sdl2_dll.step);
         b.getInstallStep().dependOn(&install_ttf_dll.step);
+        b.getInstallStep().dependOn(&install_image_dll.step);
     } else if (is_macos) {
         // macOS: use pkg-config to find SDL2 libraries
         // This works for both Homebrew locations (Apple Silicon /opt/homebrew, Intel /usr/local)
         exe.linkSystemLibrary2("sdl2", .{ .use_pkg_config = .force });
         exe.linkSystemLibrary2("SDL2_ttf", .{ .use_pkg_config = .force });
+        exe.linkSystemLibrary2("SDL2_image", .{ .use_pkg_config = .force });
     } else {
         // Linux/WSL: use system libraries
         linkSystemLibrary(exe, "SDL2");
         linkSystemLibrary(exe, "SDL2_ttf");
+        linkSystemLibrary(exe, "SDL2_image");
     }
     linkLibC(exe);
 
@@ -113,12 +122,18 @@ pub fn build(b: *std.Build) void {
         addIncludePath(unit_tests, b.path("libs/SDL2_ttf/include"));
         addLibraryPath(unit_tests, b.path("libs/SDL2_ttf/lib/x64"));
         linkSystemLibrary(unit_tests, "SDL2_ttf");
+
+        addIncludePath(unit_tests, b.path("libs/SDL2_image/include"));
+        addLibraryPath(unit_tests, b.path("libs/SDL2_image/lib/x64"));
+        linkSystemLibrary(unit_tests, "SDL2_image");
     } else if (is_macos) {
         unit_tests.linkSystemLibrary2("sdl2", .{ .use_pkg_config = .force });
         unit_tests.linkSystemLibrary2("SDL2_ttf", .{ .use_pkg_config = .force });
+        unit_tests.linkSystemLibrary2("SDL2_image", .{ .use_pkg_config = .force });
     } else {
         linkSystemLibrary(unit_tests, "SDL2");
         linkSystemLibrary(unit_tests, "SDL2_ttf");
+        linkSystemLibrary(unit_tests, "SDL2_image");
     }
     linkLibC(unit_tests);
 

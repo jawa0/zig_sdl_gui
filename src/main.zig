@@ -9,6 +9,7 @@ const action_handler = @import("action_handler.zig");
 const action = @import("action.zig");
 const color_scheme = @import("color_scheme.zig");
 const grid = @import("grid.zig");
+const button = @import("button.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -131,6 +132,14 @@ pub fn main() !void {
     }
     defer c.TTF_Quit();
 
+    // Initialize SDL_image for PNG loading
+    const img_flags = c.IMG_INIT_PNG;
+    if ((c.IMG_Init(img_flags) & img_flags) != img_flags) {
+        std.debug.print("SDL_image init failed: {s}\n", .{c.IMG_GetError()});
+        return error.IMGInitFailed;
+    }
+    defer c.IMG_Quit();
+
     // Create window
     // CRITICAL: Set render scale quality BEFORE creating renderer and textures
     // "0" = nearest, "1" = linear, "2" = anisotropic, "best" = highest available
@@ -167,6 +176,10 @@ pub fn main() !void {
     };
     defer c.TTF_CloseFont(font);
 
+    // Initialize icon cache for toolbar buttons
+    var icon_cache = button.IconCache.init(renderer);
+    defer icon_cache.deinit();
+
     // Create system cursors for hover feedback
     const cursor_arrow = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_ARROW);
     defer if (cursor_arrow != null) c.SDL_FreeCursor(cursor_arrow);
@@ -181,21 +194,21 @@ pub fn main() !void {
     var current_cursor: enum { arrow, move, nwse, nesw, crosshair } = .arrow;
 
     // UI Button definitions
-    const ButtonRect = struct {
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-
-        fn contains(self: @This(), px: f32, py: f32) bool {
-            return px >= @as(f32, @floatFromInt(self.x)) and
-                px <= @as(f32, @floatFromInt(self.x + self.w)) and
-                py >= @as(f32, @floatFromInt(self.y)) and
-                py <= @as(f32, @floatFromInt(self.y + self.h));
-        }
+    const Button = button.Button;
+    const select_button = Button{
+        .x = 10,
+        .y = 10,
+        .w = 36,
+        .h = 30,
+        .content = .{ .icon = .cursor_arrow },
     };
-    const select_button = ButtonRect{ .x = 10, .y = 10, .w = 60, .h = 30 };
-    const text_button = ButtonRect{ .x = 80, .y = 10, .w = 60, .h = 30 };
+    const text_button = Button{
+        .x = 50,
+        .y = 10,
+        .w = 36,
+        .h = 30,
+        .content = .{ .icon = .text_t },
+    };
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -1359,68 +1372,8 @@ pub fn main() !void {
         }
 
         // Render UI buttons
-        {
-            const highlight_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
-            const default_color = c.SDL_Color{ .r = 80, .g = 80, .b = 80, .a = 255 };
-            const btn_text_color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-            _ = c.TTF_SetFontSize(font, 14);
-
-            // Select button
-            {
-                const btn_color = if (action_mgr.current_tool == .selection) highlight_color else default_color;
-                _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
-                var btn_rect = c.SDL_Rect{
-                    .x = select_button.x,
-                    .y = select_button.y,
-                    .w = select_button.w,
-                    .h = select_button.h,
-                };
-                _ = c.SDL_RenderFillRect(renderer, &btn_rect);
-                _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
-                _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
-
-                const btn_text_surface = c.TTF_RenderText_Blended(font, "Select", btn_text_color);
-                if (btn_text_surface != null) {
-                    defer c.SDL_FreeSurface(btn_text_surface);
-                    const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
-                    if (btn_text_texture != null) {
-                        defer c.SDL_DestroyTexture(btn_text_texture);
-                        const text_x = select_button.x + @divTrunc(select_button.w - btn_text_surface.*.w, 2);
-                        const text_y = select_button.y + @divTrunc(select_button.h - btn_text_surface.*.h, 2);
-                        var text_rect = c.SDL_Rect{ .x = text_x, .y = text_y, .w = btn_text_surface.*.w, .h = btn_text_surface.*.h };
-                        _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
-                    }
-                }
-            }
-
-            // Text button
-            {
-                const btn_color = if (action_mgr.current_tool == .text_placement) highlight_color else default_color;
-                _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
-                var btn_rect = c.SDL_Rect{
-                    .x = text_button.x,
-                    .y = text_button.y,
-                    .w = text_button.w,
-                    .h = text_button.h,
-                };
-                _ = c.SDL_RenderFillRect(renderer, &btn_rect);
-                _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
-                _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
-
-                const btn_text_surface = c.TTF_RenderText_Blended(font, "Text", btn_text_color);
-                if (btn_text_surface != null) {
-                    defer c.SDL_FreeSurface(btn_text_surface);
-                    const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
-                    if (btn_text_texture != null) {
-                        defer c.SDL_DestroyTexture(btn_text_texture);
-                        const text_x = text_button.x + @divTrunc(text_button.w - btn_text_surface.*.w, 2);
-                        const text_y = text_button.y + @divTrunc(text_button.h - btn_text_surface.*.h, 2);
-                        var text_rect = c.SDL_Rect{ .x = text_x, .y = text_y, .w = btn_text_surface.*.w, .h = btn_text_surface.*.h };
-                        _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
-                    }
-                }
-            }
-        }
+        select_button.render(renderer, font, action_mgr.current_tool == .selection, &icon_cache);
+        text_button.render(renderer, font, action_mgr.current_tool == .text_placement, &icon_cache);
 
         // Present the frame (swap buffers)
         c.SDL_RenderPresent(renderer);
