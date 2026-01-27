@@ -31,39 +31,26 @@ fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Fon
     // Clear existing scene except preserved elements (e.g., FPS display)
     scene_graph.clearExcept(preserved_ids);
 
-    // Create test text lines in world space (centered vertically around origin)
+    // Create instruction text at origin
     const base_font_size: f32 = 16.0;
-    const line_text = "This is a line of text.";
-    const line_spacing_world: f32 = 4.0; // World-space spacing
+    const instruction_text = "Double-click on a blank piece of canvas to start typing text.";
 
     // Get text dimensions at base font size
     _ = c.TTF_SetFontSize(font, @intFromFloat(base_font_size));
-    var line_text_w: c_int = 0;
-    var line_text_h: c_int = 0;
-    _ = c.TTF_SizeText(font, line_text, &line_text_w, &line_text_h);
+    var text_w: c_int = 0;
+    var text_h: c_int = 0;
+    _ = c.TTF_SizeText(font, instruction_text, &text_w, &text_h);
 
-    // Calculate total height needed and create lines centered around origin
-    const num_lines: i32 = 40;
-    const line_height_world = base_font_size + line_spacing_world;
-    const total_height = @as(f32, @floatFromInt(num_lines)) * line_height_world;
-    const start_y = total_height / 2.0;
-
-    var i: i32 = 0;
-    while (i < num_lines) : (i += 1) {
-        const y = start_y - @as(f32, @floatFromInt(i)) * line_height_world;
-
-        // Calculate positions for rectangle (centered around text position)
-        // Add text label (without border rectangle)
-        const text_x = -@as(f32, @floatFromInt(line_text_w)) / 2.0;
-        _ = try scene_graph.addTextLabel(
-            line_text,
-            Vec2{ .x = text_x, .y = y },
-            base_font_size,
-            colors.text,
-            .world,
-            font,
-        );
-    }
+    // Center the text at origin
+    const text_x = -@as(f32, @floatFromInt(text_w)) / 2.0;
+    _ = try scene_graph.addTextLabel(
+        instruction_text,
+        Vec2{ .x = text_x, .y = 0 },
+        base_font_size,
+        colors.text,
+        .world,
+        font,
+    );
 
     // Large red rectangle on the left
     _ = try scene_graph.addRectangle(
