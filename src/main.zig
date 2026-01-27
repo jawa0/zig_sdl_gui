@@ -348,8 +348,9 @@ pub fn main() !void {
                                         state.start_bbox_h = elem.bounding_box.h;
                                         if (elem.element_type == .text_label) {
                                             state.start_font_size = elem.data.text_label.font_size;
-                                        } else {
-                                            state.start_font_size = 16.0;
+                                        } else if (elem.element_type == .rectangle) {
+                                            state.start_rect_width = elem.data.rectangle.width;
+                                            state.start_rect_height = elem.data.rectangle.height;
                                         }
                                         action_mgr.resize.element_count += 1;
                                     }
@@ -502,38 +503,48 @@ pub fn main() !void {
                     const new_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
                     const new_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
 
-                    // Calculate scale factor to maintain aspect ratio
-                    const width_scale = if (orig_union_w > 0.001) new_width / orig_union_w else 1.0;
-                    const height_scale = if (orig_union_h > 0.001) new_height / orig_union_h else 1.0;
-                    var scale_factor = @max(width_scale, height_scale);
+                    // Calculate independent scale factors for width and height
+                    var width_scale = if (orig_union_w > 0.001) new_width / orig_union_w else 1.0;
+                    var height_scale = if (orig_union_h > 0.001) new_height / orig_union_h else 1.0;
 
-                    // Clamp scale to reasonable range
-                    scale_factor = @max(0.1, @min(10.0, scale_factor));
+                    // Clamp scales to reasonable range
+                    width_scale = @max(0.1, @min(10.0, width_scale));
+                    height_scale = @max(0.1, @min(10.0, height_scale));
 
-                    // Add hysteresis to prevent oscillation
-                    const scale_change = @abs(scale_factor - action_mgr.resize.last_scale_factor);
+                    // Uniform scale for text (maintains aspect ratio)
+                    var uniform_scale = @max(width_scale, height_scale);
+
+                    // Add hysteresis to uniform scale to prevent oscillation
+                    const scale_change = @abs(uniform_scale - action_mgr.resize.last_scale_factor);
                     const min_scale_change = 0.005 * action_mgr.resize.last_scale_factor;
                     if (scale_change < min_scale_change) {
-                        scale_factor = action_mgr.resize.last_scale_factor;
+                        uniform_scale = action_mgr.resize.last_scale_factor;
                     } else {
-                        action_mgr.resize.last_scale_factor = scale_factor;
+                        action_mgr.resize.last_scale_factor = uniform_scale;
                     }
 
                     // Apply resize to all elements in the selection
                     for (action_mgr.resize.element_states[0..action_mgr.resize.element_count]) |elem_state| {
                         if (scene_graph.findElement(elem_state.element_id)) |elem| {
+                            // Choose scale factors based on element type
+                            // Rectangles: independent width/height scaling (can stretch)
+                            // Text: uniform scaling (maintains aspect ratio)
+                            const use_uniform = elem.element_type == .text_label;
+                            const sx = if (use_uniform) uniform_scale else width_scale;
+                            const sy = if (use_uniform) uniform_scale else height_scale;
+
                             // Scale element's bbox dimensions
-                            const new_bbox_w = elem_state.start_bbox_w * scale_factor;
-                            const new_bbox_h = elem_state.start_bbox_h * scale_factor;
+                            const new_bbox_w = elem_state.start_bbox_w * sx;
+                            const new_bbox_h = elem_state.start_bbox_h * sy;
 
                             // Calculate element's position relative to opposite corner at start
                             // bbox.x is left edge, bbox.y is bottom edge (world Y-up)
                             const start_left_offset = elem_state.start_bbox_x - action_mgr.resize.opposite_corner.x;
                             const start_bottom_offset = elem_state.start_bbox_y - action_mgr.resize.opposite_corner.y;
 
-                            // Scale the offsets
-                            const new_left_offset = start_left_offset * scale_factor;
-                            const new_bottom_offset = start_bottom_offset * scale_factor;
+                            // Scale the offsets (x uses width_scale, y uses height_scale for non-uniform)
+                            const new_left_offset = start_left_offset * sx;
+                            const new_bottom_offset = start_bottom_offset * sy;
 
                             // Calculate new bbox position
                             const new_bbox_x = action_mgr.resize.opposite_corner.x + new_left_offset;
@@ -551,14 +562,14 @@ pub fn main() !void {
                                 .y = new_bbox_y + new_bbox_h,
                             };
 
-                            // Update scale/font_size for proper re-rendering
+                            // Update element-specific properties for proper re-rendering
                             if (elem.element_type == .rectangle) {
-                                elem.transform.scale = Vec2{
-                                    .x = scale_factor,
-                                    .y = scale_factor,
-                                };
+                                // Update rectangle's actual width/height (non-uniform scaling)
+                                elem.data.rectangle.width = elem_state.start_rect_width * sx;
+                                elem.data.rectangle.height = elem_state.start_rect_height * sy;
                             } else if (elem.element_type == .text_label) {
-                                elem.data.text_label.font_size = elem_state.start_font_size * scale_factor;
+                                // Text uses uniform scale to maintain aspect ratio
+                                elem.data.text_label.font_size = elem_state.start_font_size * uniform_scale;
                             }
                         }
                     }

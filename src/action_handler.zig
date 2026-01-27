@@ -141,6 +141,9 @@ pub const ElementResizeState = struct {
     start_bbox_w: f32 = 0,
     start_bbox_h: f32 = 0,
     start_font_size: f32 = 16,
+    // Rectangle-specific start dimensions
+    start_rect_width: f32 = 0,
+    start_rect_height: f32 = 0,
 };
 
 /// Maximum elements in a resize operation
@@ -545,4 +548,196 @@ test "SelectionSet remove preserves other elements" {
     try testing.expect(!set.contains(3));
     try testing.expect(set.contains(4));
     try testing.expect(set.contains(5));
+}
+
+// ============================================================================
+// ElementDragState Tests
+// ============================================================================
+
+test "ElementDragState default initialization" {
+    const state = ElementDragState{};
+
+    try testing.expectEqual(@as(u32, 0), state.element_id);
+    try testing.expectEqual(@as(f32, 0), state.start_pos.x);
+    try testing.expectEqual(@as(f32, 0), state.start_pos.y);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_x);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_y);
+}
+
+test "ElementDragState custom initialization" {
+    const state = ElementDragState{
+        .element_id = 42,
+        .start_pos = Vec2{ .x = 100, .y = 200 },
+        .start_bbox_x = 50,
+        .start_bbox_y = 75,
+    };
+
+    try testing.expectEqual(@as(u32, 42), state.element_id);
+    try testing.expectEqual(@as(f32, 100), state.start_pos.x);
+    try testing.expectEqual(@as(f32, 200), state.start_pos.y);
+    try testing.expectEqual(@as(f32, 50), state.start_bbox_x);
+    try testing.expectEqual(@as(f32, 75), state.start_bbox_y);
+}
+
+// ============================================================================
+// ElementResizeState Tests
+// ============================================================================
+
+test "ElementResizeState default initialization" {
+    const state = ElementResizeState{};
+
+    try testing.expectEqual(@as(u32, 0), state.element_id);
+    try testing.expectEqual(@as(f32, 0), state.start_pos.x);
+    try testing.expectEqual(@as(f32, 0), state.start_pos.y);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_x);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_y);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_w);
+    try testing.expectEqual(@as(f32, 0), state.start_bbox_h);
+    try testing.expectEqual(@as(f32, 16), state.start_font_size);
+    try testing.expectEqual(@as(f32, 0), state.start_rect_width);
+    try testing.expectEqual(@as(f32, 0), state.start_rect_height);
+}
+
+test "ElementResizeState for text element" {
+    const state = ElementResizeState{
+        .element_id = 1,
+        .start_pos = Vec2{ .x = 100, .y = 150 },
+        .start_bbox_x = 100,
+        .start_bbox_y = 150,
+        .start_bbox_w = 200,
+        .start_bbox_h = 24,
+        .start_font_size = 18,
+        .start_rect_width = 0,
+        .start_rect_height = 0,
+    };
+
+    try testing.expectEqual(@as(u32, 1), state.element_id);
+    try testing.expectEqual(@as(f32, 18), state.start_font_size);
+    // Text elements don't use rect dimensions
+    try testing.expectEqual(@as(f32, 0), state.start_rect_width);
+    try testing.expectEqual(@as(f32, 0), state.start_rect_height);
+}
+
+test "ElementResizeState for rectangle element" {
+    const state = ElementResizeState{
+        .element_id = 2,
+        .start_pos = Vec2{ .x = 50, .y = 75 },
+        .start_bbox_x = 50,
+        .start_bbox_y = 75,
+        .start_bbox_w = 120,
+        .start_bbox_h = 80,
+        .start_font_size = 16,
+        .start_rect_width = 120,
+        .start_rect_height = 80,
+    };
+
+    try testing.expectEqual(@as(u32, 2), state.element_id);
+    // Rectangle elements use rect dimensions for non-proportional scaling
+    try testing.expectEqual(@as(f32, 120), state.start_rect_width);
+    try testing.expectEqual(@as(f32, 80), state.start_rect_height);
+}
+
+// ============================================================================
+// DragState Tests
+// ============================================================================
+
+test "DragState default initialization" {
+    const state = DragState{};
+
+    try testing.expect(!state.is_dragging);
+    try testing.expectEqual(@as(f32, 0), state.start_world_pos.x);
+    try testing.expectEqual(@as(f32, 0), state.start_world_pos.y);
+    try testing.expectEqual(@as(usize, 0), state.element_count);
+}
+
+test "DragState active drag" {
+    var state = DragState{
+        .is_dragging = true,
+        .start_world_pos = Vec2{ .x = 500, .y = 300 },
+        .element_count = 2,
+    };
+    state.element_states[0] = ElementDragState{
+        .element_id = 1,
+        .start_pos = Vec2{ .x = 100, .y = 100 },
+    };
+    state.element_states[1] = ElementDragState{
+        .element_id = 2,
+        .start_pos = Vec2{ .x = 200, .y = 150 },
+    };
+
+    try testing.expect(state.is_dragging);
+    try testing.expectEqual(@as(usize, 2), state.element_count);
+    try testing.expectEqual(@as(u32, 1), state.element_states[0].element_id);
+    try testing.expectEqual(@as(u32, 2), state.element_states[1].element_id);
+}
+
+// ============================================================================
+// ResizeState Tests
+// ============================================================================
+
+test "ResizeState default initialization" {
+    const state = ResizeState{};
+
+    try testing.expect(!state.is_resizing);
+    try testing.expectEqual(ResizeHandle.top_left, state.handle);
+    try testing.expectEqual(@as(f32, 0), state.start_world_pos.x);
+    try testing.expectEqual(@as(f32, 0), state.start_world_pos.y);
+    try testing.expectEqual(@as(usize, 0), state.element_count);
+    try testing.expectEqual(@as(f32, 1.0), state.last_scale_factor);
+}
+
+test "ResizeState with union bbox" {
+    const state = ResizeState{
+        .is_resizing = true,
+        .handle = .bottom_right,
+        .union_start_min_x = 50,
+        .union_start_min_y = 75,
+        .union_start_max_x = 250,
+        .union_start_max_y = 175,
+        .element_count = 1,
+    };
+
+    try testing.expect(state.is_resizing);
+    try testing.expectEqual(ResizeHandle.bottom_right, state.handle);
+    // Union bbox dimensions
+    const union_width = state.union_start_max_x - state.union_start_min_x;
+    const union_height = state.union_start_max_y - state.union_start_min_y;
+    try testing.expectEqual(@as(f32, 200), union_width);
+    try testing.expectEqual(@as(f32, 100), union_height);
+}
+
+test "ResizeState multi-element resize" {
+    var state = ResizeState{
+        .is_resizing = true,
+        .handle = .top_left,
+        .opposite_corner = Vec2{ .x = 300, .y = 200 },
+        .element_count = 3,
+    };
+    state.element_states[0] = ElementResizeState{
+        .element_id = 1,
+        .start_bbox_w = 100,
+        .start_bbox_h = 50,
+        .start_font_size = 16,
+    };
+    state.element_states[1] = ElementResizeState{
+        .element_id = 2,
+        .start_bbox_w = 80,
+        .start_bbox_h = 60,
+        .start_rect_width = 80,
+        .start_rect_height = 60,
+    };
+    state.element_states[2] = ElementResizeState{
+        .element_id = 3,
+        .start_bbox_w = 120,
+        .start_bbox_h = 40,
+        .start_font_size = 24,
+    };
+
+    try testing.expectEqual(@as(usize, 3), state.element_count);
+    try testing.expectEqual(@as(f32, 300), state.opposite_corner.x);
+    try testing.expectEqual(@as(f32, 200), state.opposite_corner.y);
+    // Verify per-element state
+    try testing.expectEqual(@as(f32, 16), state.element_states[0].start_font_size);
+    try testing.expectEqual(@as(f32, 80), state.element_states[1].start_rect_width);
+    try testing.expectEqual(@as(f32, 24), state.element_states[2].start_font_size);
 }
