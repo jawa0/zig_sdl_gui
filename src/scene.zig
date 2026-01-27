@@ -392,6 +392,47 @@ pub const SceneGraph = struct {
         return null;
     }
 
+    /// Clone an element and return the new element's ID.
+    /// The clone is positioned at the same location as the original.
+    pub fn cloneElement(self: *SceneGraph, id: u32) !?u32 {
+        const orig = self.findElement(id) orelse return null;
+
+        const new_id = self.next_id;
+        self.next_id += 1;
+
+        var new_element = Element{
+            .id = new_id,
+            .transform = orig.transform,
+            .space = orig.space,
+            .visible = orig.visible,
+            .element_type = orig.element_type,
+            .bounding_box = orig.bounding_box,
+            .data = undefined,
+        };
+
+        switch (orig.element_type) {
+            .text_label => {
+                const label = &orig.data.text_label;
+                new_element.data = .{
+                    .text_label = try TextLabel.init(self.allocator, label.text, label.font_size, label.color),
+                };
+            },
+            .rectangle => {
+                new_element.data = .{
+                    .rectangle = Rectangle.init(
+                        orig.data.rectangle.width,
+                        orig.data.rectangle.height,
+                        orig.data.rectangle.border_thickness,
+                        orig.data.rectangle.color,
+                    ),
+                };
+            },
+        }
+
+        try self.elements.append(self.allocator, new_element);
+        return new_id;
+    }
+
     /// Update colors of scene elements (used when color scheme changes)
     /// Only updates world-space elements, leaving screen-space UI (like FPS) unchanged
     pub fn updateSceneColors(self: *SceneGraph, text_color: c.SDL_Color, rect_red: c.SDL_Color, rect_green: c.SDL_Color, rect_yellow: c.SDL_Color) void {
@@ -1258,4 +1299,77 @@ test "BoundingBox.isFullyWithin" {
 
     // Completely outside
     try expect(!bbox.isFullyWithin(100, 100, 200, 200));
+}
+
+test "SceneGraph.cloneElement clones text label" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const orig_id = try scene.addTextLabel("Hello", Vec2{ .x = 100, .y = 200 }, 24, white, .world, null);
+
+    const clone_id = (try scene.cloneElement(orig_id)).?;
+
+    try expect(clone_id != orig_id);
+    try expectEqual(@as(usize, 2), scene.elements.items.len);
+
+    const orig = scene.findElement(orig_id).?;
+    const clone = scene.findElement(clone_id).?;
+
+    // Verify clone has same properties
+    try expectEqual(orig.transform.position.x, clone.transform.position.x);
+    try expectEqual(orig.transform.position.y, clone.transform.position.y);
+    try expectEqual(ElementType.text_label, clone.element_type);
+    try expectEqual(orig.data.text_label.font_size, clone.data.text_label.font_size);
+    try expect(std.mem.eql(u8, orig.data.text_label.text, clone.data.text_label.text));
+}
+
+test "SceneGraph.cloneElement clones rectangle" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const blue = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
+    const orig_id = try scene.addRectangle(Vec2{ .x = 50, .y = 75 }, 120, 80, 3, blue, .world);
+
+    const clone_id = (try scene.cloneElement(orig_id)).?;
+
+    try expect(clone_id != orig_id);
+    try expectEqual(@as(usize, 2), scene.elements.items.len);
+
+    const orig = scene.findElement(orig_id).?;
+    const clone = scene.findElement(clone_id).?;
+
+    // Verify clone has same properties
+    try expectEqual(orig.transform.position.x, clone.transform.position.x);
+    try expectEqual(orig.transform.position.y, clone.transform.position.y);
+    try expectEqual(ElementType.rectangle, clone.element_type);
+    try expectEqual(orig.data.rectangle.width, clone.data.rectangle.width);
+    try expectEqual(orig.data.rectangle.height, clone.data.rectangle.height);
+    try expectEqual(orig.data.rectangle.border_thickness, clone.data.rectangle.border_thickness);
+}
+
+test "SceneGraph.cloneElement returns null for non-existent ID" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const result = try scene.cloneElement(999);
+    try expect(result == null);
+}
+
+test "SceneGraph.cloneElement preserves bounding box" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const orig_id = try scene.addRectangle(Vec2{ .x = 10, .y = 20 }, 100, 50, 2, white, .world);
+
+    const clone_id = (try scene.cloneElement(orig_id)).?;
+
+    const orig = scene.findElement(orig_id).?;
+    const clone = scene.findElement(clone_id).?;
+
+    try expectEqual(orig.bounding_box.x, clone.bounding_box.x);
+    try expectEqual(orig.bounding_box.y, clone.bounding_box.y);
+    try expectEqual(orig.bounding_box.w, clone.bounding_box.w);
+    try expectEqual(orig.bounding_box.h, clone.bounding_box.h);
 }

@@ -127,6 +127,11 @@ pub const DragState = struct {
     element_states: [MAX_DRAG_ELEMENTS]ElementDragState = undefined,
     element_count: usize = 0,
 
+    // Alt+drag clone support
+    alt_held: bool = false, // Whether Alt was held when drag started
+    has_moved: bool = false, // Whether actual movement has occurred
+    cloned: bool = false, // Whether elements have been cloned
+
     // Legacy single-element fields (kept for compatibility)
     element_id: u32 = 0,
     element_start_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
@@ -666,6 +671,9 @@ test "DragState default initialization" {
     try testing.expectEqual(@as(f32, 0), state.start_world_pos.x);
     try testing.expectEqual(@as(f32, 0), state.start_world_pos.y);
     try testing.expectEqual(@as(usize, 0), state.element_count);
+    try testing.expect(!state.alt_held);
+    try testing.expect(!state.has_moved);
+    try testing.expect(!state.cloned);
 }
 
 test "DragState active drag" {
@@ -687,6 +695,33 @@ test "DragState active drag" {
     try testing.expectEqual(@as(usize, 2), state.element_count);
     try testing.expectEqual(@as(u32, 1), state.element_states[0].element_id);
     try testing.expectEqual(@as(u32, 2), state.element_states[1].element_id);
+}
+
+test "DragState alt+drag clone state" {
+    var state = DragState{
+        .is_dragging = true,
+        .start_world_pos = Vec2{ .x = 100, .y = 100 },
+        .alt_held = true,
+        .has_moved = false,
+        .cloned = false,
+        .element_count = 1,
+    };
+    state.element_states[0] = ElementDragState{
+        .element_id = 42,
+        .start_pos = Vec2{ .x = 50, .y = 50 },
+    };
+
+    try testing.expect(state.is_dragging);
+    try testing.expect(state.alt_held);
+    try testing.expect(!state.has_moved);
+    try testing.expect(!state.cloned);
+
+    // Simulate clone operation
+    state.has_moved = true;
+    state.cloned = true;
+
+    try testing.expect(state.has_moved);
+    try testing.expect(state.cloned);
 }
 
 // ============================================================================

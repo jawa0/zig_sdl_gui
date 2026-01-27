@@ -407,8 +407,12 @@ pub fn main() !void {
                                     handle_clicked = true;
                                 } else {
                                     // Normal click: start dragging all selected elements
+                                    const alt_held = (mod_state & c.KMOD_ALT) != 0;
                                     action_mgr.drag.is_dragging = true;
                                     action_mgr.drag.start_world_pos = world_pos;
+                                    action_mgr.drag.alt_held = alt_held;
+                                    action_mgr.drag.has_moved = false;
+                                    action_mgr.drag.cloned = false;
 
                                     // Store all element start positions
                                     action_mgr.drag.element_count = 0;
@@ -442,9 +446,13 @@ pub fn main() !void {
 
                             // Only start dragging if not shift+clicking (shift is for selection only)
                             if (!shift_held) {
+                                const alt_held = (mod_state & c.KMOD_ALT) != 0;
                                 const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
                                 action_mgr.drag.is_dragging = true;
                                 action_mgr.drag.start_world_pos = world_pos;
+                                action_mgr.drag.alt_held = alt_held;
+                                action_mgr.drag.has_moved = false;
+                                action_mgr.drag.cloned = false;
 
                                 // Store the clicked element's position for dragging
                                 action_mgr.drag.element_count = 0;
@@ -485,6 +493,43 @@ pub fn main() !void {
                         .x = current_world.x - action_mgr.drag.start_world_pos.x,
                         .y = current_world.y - action_mgr.drag.start_world_pos.y,
                     };
+
+                    // Check if this is actual movement (not just Alt+click)
+                    const has_actual_movement = @abs(delta.x) > 0.1 or @abs(delta.y) > 0.1;
+
+                    // Alt+drag clone: clone elements on first actual movement
+                    if (action_mgr.drag.alt_held and !action_mgr.drag.cloned and has_actual_movement) {
+                        action_mgr.drag.cloned = true;
+                        action_mgr.drag.has_moved = true;
+
+                        // Clone all dragged elements and update drag state to track clones
+                        var new_count: usize = 0;
+                        for (action_mgr.drag.element_states[0..action_mgr.drag.element_count]) |*elem_state| {
+                            if (scene_graph.cloneElement(elem_state.element_id)) |maybe_new_id| {
+                                if (maybe_new_id) |new_id| {
+                                    // Update selection: remove original, add clone
+                                    action_mgr.selection.remove(elem_state.element_id);
+                                    action_mgr.selection.add(new_id);
+
+                                    // Update drag state to track the clone instead
+                                    if (scene_graph.findElement(new_id)) |new_elem| {
+                                        elem_state.element_id = new_id;
+                                        elem_state.start_pos = new_elem.transform.position;
+                                        elem_state.start_bbox_x = new_elem.bounding_box.x;
+                                        elem_state.start_bbox_y = new_elem.bounding_box.y;
+                                        new_count += 1;
+                                    }
+                                }
+                            } else |_| {
+                                // Clone failed, keep original
+                                new_count += 1;
+                            }
+                        }
+                    }
+
+                    if (has_actual_movement) {
+                        action_mgr.drag.has_moved = true;
+                    }
 
                     // Move all selected elements by the same delta (rigid body movement)
                     for (action_mgr.drag.element_states[0..action_mgr.drag.element_count]) |elem_state| {
