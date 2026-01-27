@@ -194,7 +194,8 @@ pub fn main() !void {
                 py <= @as(f32, @floatFromInt(self.y + self.h));
         }
     };
-    const text_button = ButtonRect{ .x = 10, .y = 10, .w = 60, .h = 30 };
+    const select_button = ButtonRect{ .x = 10, .y = 10, .w = 60, .h = 30 };
+    const text_button = ButtonRect{ .x = 80, .y = 10, .w = 60, .h = 30 };
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -284,35 +285,47 @@ pub fn main() !void {
                 continue;
             }
 
-            // Handle Text button click (works even while editing text)
+            // Handle toolbar button clicks (works even while editing text)
             if (event.type == c.SDL_MOUSEBUTTONDOWN and event.button.button == c.SDL_BUTTON_LEFT) {
                 const click_x = @as(f32, @floatFromInt(event.button.x));
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
-                if (text_button.contains(click_x, click_y)) {
-                    // If currently editing text, finish it first
-                    if (action_mgr.text_edit.is_editing) {
-                        // Same logic as end_text_edit action
-                        if (action_mgr.text_edit.text_len > 0) {
-                            const text = action_mgr.text_edit.text_buffer[0..action_mgr.text_edit.text_len];
-                            var has_non_whitespace = false;
-                            for (text) |ch| {
-                                if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
-                                    has_non_whitespace = true;
-                                    break;
+                // Helper to finish text editing
+                const finishTextEdit = struct {
+                    fn call(mgr: *ActionHandler) void {
+                        if (mgr.text_edit.is_editing) {
+                            if (mgr.text_edit.text_len > 0) {
+                                const text = mgr.text_edit.text_buffer[0..mgr.text_edit.text_len];
+                                var has_non_whitespace = false;
+                                for (text) |ch| {
+                                    if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                                        has_non_whitespace = true;
+                                        break;
+                                    }
+                                }
+                                if (has_non_whitespace) {
+                                    mgr.text_edit.should_create_element = true;
+                                    @memcpy(mgr.text_edit.finished_text_buffer[0..mgr.text_edit.text_len], text);
+                                    mgr.text_edit.finished_text_len = mgr.text_edit.text_len;
+                                    mgr.text_edit.finished_world_pos = mgr.text_edit.world_pos;
                                 }
                             }
-                            if (has_non_whitespace) {
-                                action_mgr.text_edit.should_create_element = true;
-                                @memcpy(action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.text_len], text);
-                                action_mgr.text_edit.finished_text_len = action_mgr.text_edit.text_len;
-                                action_mgr.text_edit.finished_world_pos = action_mgr.text_edit.world_pos;
-                            }
+                            mgr.text_edit.is_editing = false;
+                            c.SDL_StopTextInput();
                         }
-                        action_mgr.text_edit.is_editing = false;
-                        c.SDL_StopTextInput();
                     }
+                };
 
+                if (select_button.contains(click_x, click_y)) {
+                    finishTextEdit.call(&action_mgr);
+                    action_mgr.current_tool = .selection;
+                    if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                    current_cursor = .arrow;
+                    continue;
+                }
+
+                if (text_button.contains(click_x, click_y)) {
+                    finishTextEdit.call(&action_mgr);
                     // Enter text placement mode
                     action_mgr.current_tool = .text_placement;
                     action_mgr.selection.clear();
@@ -327,8 +340,8 @@ pub fn main() !void {
                 const click_x = @as(f32, @floatFromInt(event.button.x));
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
-                // Skip if clicking the text button (handled above)
-                if (!text_button.contains(click_x, click_y)) {
+                // Skip if clicking toolbar buttons (handled above)
+                if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y)) {
                     // Check if clicking on empty canvas (no element hit)
                     if (scene_graph.hitTest(click_x, click_y, &cam) == null) {
                         // End text editing first
@@ -1347,43 +1360,64 @@ pub fn main() !void {
 
         // Render UI buttons
         {
-            // Text button background
-            const btn_color = if (action_mgr.current_tool == .text_placement)
-                c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 } // Highlighted when active
-            else
-                c.SDL_Color{ .r = 80, .g = 80, .b = 80, .a = 255 }; // Default gray
-
-            _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
-            var btn_rect = c.SDL_Rect{
-                .x = text_button.x,
-                .y = text_button.y,
-                .w = text_button.w,
-                .h = text_button.h,
-            };
-            _ = c.SDL_RenderFillRect(renderer, &btn_rect);
-
-            // Button border
-            _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
-            _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
-
-            // Button text "Text"
+            const highlight_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 };
+            const default_color = c.SDL_Color{ .r = 80, .g = 80, .b = 80, .a = 255 };
+            const btn_text_color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
             _ = c.TTF_SetFontSize(font, 14);
-            const btn_text_surface = c.TTF_RenderText_Blended(font, "Text", c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 });
-            if (btn_text_surface != null) {
-                defer c.SDL_FreeSurface(btn_text_surface);
-                const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
-                if (btn_text_texture != null) {
-                    defer c.SDL_DestroyTexture(btn_text_texture);
-                    // Center text in button
-                    const text_x = text_button.x + @divTrunc(text_button.w - btn_text_surface.*.w, 2);
-                    const text_y = text_button.y + @divTrunc(text_button.h - btn_text_surface.*.h, 2);
-                    var text_rect = c.SDL_Rect{
-                        .x = text_x,
-                        .y = text_y,
-                        .w = btn_text_surface.*.w,
-                        .h = btn_text_surface.*.h,
-                    };
-                    _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
+
+            // Select button
+            {
+                const btn_color = if (action_mgr.current_tool == .selection) highlight_color else default_color;
+                _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
+                var btn_rect = c.SDL_Rect{
+                    .x = select_button.x,
+                    .y = select_button.y,
+                    .w = select_button.w,
+                    .h = select_button.h,
+                };
+                _ = c.SDL_RenderFillRect(renderer, &btn_rect);
+                _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+                _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
+
+                const btn_text_surface = c.TTF_RenderText_Blended(font, "Select", btn_text_color);
+                if (btn_text_surface != null) {
+                    defer c.SDL_FreeSurface(btn_text_surface);
+                    const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
+                    if (btn_text_texture != null) {
+                        defer c.SDL_DestroyTexture(btn_text_texture);
+                        const text_x = select_button.x + @divTrunc(select_button.w - btn_text_surface.*.w, 2);
+                        const text_y = select_button.y + @divTrunc(select_button.h - btn_text_surface.*.h, 2);
+                        var text_rect = c.SDL_Rect{ .x = text_x, .y = text_y, .w = btn_text_surface.*.w, .h = btn_text_surface.*.h };
+                        _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
+                    }
+                }
+            }
+
+            // Text button
+            {
+                const btn_color = if (action_mgr.current_tool == .text_placement) highlight_color else default_color;
+                _ = c.SDL_SetRenderDrawColor(renderer, btn_color.r, btn_color.g, btn_color.b, btn_color.a);
+                var btn_rect = c.SDL_Rect{
+                    .x = text_button.x,
+                    .y = text_button.y,
+                    .w = text_button.w,
+                    .h = text_button.h,
+                };
+                _ = c.SDL_RenderFillRect(renderer, &btn_rect);
+                _ = c.SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+                _ = c.SDL_RenderDrawRect(renderer, &btn_rect);
+
+                const btn_text_surface = c.TTF_RenderText_Blended(font, "Text", btn_text_color);
+                if (btn_text_surface != null) {
+                    defer c.SDL_FreeSurface(btn_text_surface);
+                    const btn_text_texture = c.SDL_CreateTextureFromSurface(renderer, btn_text_surface);
+                    if (btn_text_texture != null) {
+                        defer c.SDL_DestroyTexture(btn_text_texture);
+                        const text_x = text_button.x + @divTrunc(text_button.w - btn_text_surface.*.w, 2);
+                        const text_y = text_button.y + @divTrunc(text_button.h - btn_text_surface.*.h, 2);
+                        var text_rect = c.SDL_Rect{ .x = text_x, .y = text_y, .w = btn_text_surface.*.w, .h = btn_text_surface.*.h };
+                        _ = c.SDL_RenderCopy(renderer, btn_text_texture, null, &text_rect);
+                    }
                 }
             }
         }
