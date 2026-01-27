@@ -883,7 +883,10 @@ pub fn main() !void {
             const base_font_size: f32 = 16.0;
             const target_font_size = base_font_size * cam.zoom;
             const font_size_int: c_int = @intFromFloat(target_font_size);
-            const line_height = target_font_size;
+
+            // Line spacing is slightly larger than font size for better readability
+            // and to give room for the cursor to extend above/below the text
+            const line_spacing = target_font_size * scene.LINE_SPACING_MULTIPLIER;
 
             // Render the text being edited (split by newlines)
             if (action_mgr.text_edit.text_len > 0) {
@@ -925,7 +928,7 @@ pub fn main() !void {
                         }
 
                         // Move to next line
-                        line_y += line_height;
+                        line_y += line_spacing;
                         line_start = i + 1;
                     }
                 }
@@ -965,12 +968,15 @@ pub fn main() !void {
                     }
 
                     // Position cursor at the correct line
-                    cursor_y += @as(f32, @floatFromInt(line_count)) * line_height;
+                    cursor_y += @as(f32, @floatFromInt(line_count)) * line_spacing;
                 }
 
-                const cursor_height: i32 = @intFromFloat(line_height);
+                // Cursor spans the full line spacing, centered on the text.
+                // This makes it visible above the mouse cursor without overlapping adjacent lines.
+                const extra_spacing = line_spacing - target_font_size;
+                const cursor_height: i32 = @intFromFloat(line_spacing);
                 _ = c.SDL_SetRenderDrawColor(renderer, colors.text.r, colors.text.g, colors.text.b, colors.text.a);
-                const cursor_y_int: i32 = @intFromFloat(cursor_y);
+                const cursor_y_int: i32 = @as(i32, @intFromFloat(cursor_y - extra_spacing / 2));
                 _ = c.SDL_RenderDrawLine(
                     renderer,
                     @intFromFloat(cursor_x),

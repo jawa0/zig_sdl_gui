@@ -10,6 +10,12 @@ const Camera = camera.Camera;
 const TextCache = text_cache.TextCache;
 const c = sdl.c;
 
+/// Line spacing multiplier for multiline text.
+/// Lines are spaced at font_size * LINE_SPACING_MULTIPLIER.
+/// This provides room for the text cursor to extend above/below the text
+/// and improves readability of multiline text.
+pub const LINE_SPACING_MULTIPLIER: f32 = 1.2;
+
 /// Dimensions returned by drawing functions
 pub const DrawDimensions = struct {
     w: i32,
@@ -229,7 +235,8 @@ pub const SceneGraph = struct {
 
                 if (line_count == 0) line_count = 1; // At least one line
 
-                const total_height = font_size * @as(f32, @floatFromInt(line_count));
+                const line_spacing = font_size * LINE_SPACING_MULTIPLIER;
+                const total_height = line_spacing * @as(f32, @floatFromInt(line_count));
                 break :blk BoundingBox{
                     .x = position.x,
                     .y = position.y - total_height, // Bottom of text in world space
@@ -269,7 +276,8 @@ pub const SceneGraph = struct {
             for (text) |ch| {
                 if (ch == '\n') line_count += 1;
             }
-            const approx_h = font_size * @as(f32, @floatFromInt(line_count));
+            const line_spacing = font_size * LINE_SPACING_MULTIPLIER;
+            const approx_h = line_spacing * @as(f32, @floatFromInt(line_count));
             break :blk BoundingBox{
                 .x = position.x,
                 .y = position.y - approx_h, // Bottom of text in world space
@@ -466,7 +474,8 @@ pub const SceneGraph = struct {
 
                     if (line_count == 0) line_count = 1; // At least one line
 
-                    const total_height = label.font_size * @as(f32, @floatFromInt(line_count));
+                    const line_spacing = label.font_size * LINE_SPACING_MULTIPLIER;
+                    const total_height = line_spacing * @as(f32, @floatFromInt(line_count));
                     elem.bounding_box.x = elem.transform.position.x;
                     elem.bounding_box.y = elem.transform.position.y - total_height; // Bottom in world space
                     elem.bounding_box.w = @floatFromInt(max_width);
@@ -553,43 +562,94 @@ pub const SceneGraph = struct {
                         },
                     };
 
-                    // Calculate destination dimensions from AUTHORITATIVE bbox
-                    // Bbox is in world units, scale to screen pixels
-                    const bbox = elem.bounding_box;
-                    const dest_w: i32 = switch (elem.space) {
-                        .world => @intFromFloat(bbox.w * cam.zoom),
-                        .screen => @intFromFloat(bbox.w),
-                    };
-                    const dest_h: i32 = switch (elem.space) {
-                        .world => @intFromFloat(bbox.h * cam.zoom),
-                        .screen => @intFromFloat(bbox.h),
-                    };
-
                     // Calculate target font size for current zoom (for optimal rasterization)
                     const target_font_size: f32 = switch (elem.space) {
                         .world => label.font_size * cam.zoom,
                         .screen => label.font_size,
                     };
 
-                    // Convert position to integers for SDL
-                    const x: i32 = @intFromFloat(screen_pos.x);
-                    const y: i32 = @intFromFloat(screen_pos.y);
+                    // Check if text contains newlines (multiline)
+                    const has_newline = std.mem.indexOfScalar(u8, label.text, '\n') != null;
 
-                    // Render text - will re-rasterize at target size if zoom changed
-                    var text_buf: [256]u8 = undefined;
-                    const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
+                    if (has_newline) {
+                        // Multiline text: render each line separately
+                        // SDL_ttf doesn't handle newlines, so we split and render line by line
+                        const line_spacing = target_font_size * LINE_SPACING_MULTIPLIER;
+                        const font_size_int: c_int = @intFromFloat(target_font_size);
+                        _ = c.TTF_SetFontSize(font, font_size_int);
 
-                    _ = label.cache.draw(
-                        renderer,
-                        font,
-                        null_term_text.ptr,
-                        x,
-                        y,
-                        dest_w,
-                        dest_h,
-                        target_font_size,  // Re-render if zoom changed significantly
-                        label.color,
-                    );
+                        var line_y: f32 = screen_pos.y;
+                        var line_start: usize = 0;
+                        var i: usize = 0;
+                        while (i <= label.text.len) : (i += 1) {
+                            if (i == label.text.len or label.text[i] == '\n') {
+                                // Render this line (if not empty)
+                                if (i > line_start) {
+                                    const line = label.text[line_start..i];
+                                    var line_buf: [256]u8 = undefined;
+                                    const line_z = std.fmt.bufPrintZ(&line_buf, "{s}", .{line}) catch {
+                                        line_start = i + 1;
+                                        line_y += line_spacing;
+                                        continue;
+                                    };
+
+                                    const text_surface = c.TTF_RenderText_Blended(font, line_z.ptr, label.color);
+                                    if (text_surface != null) {
+                                        defer c.SDL_FreeSurface(text_surface);
+                                        const text_texture = c.SDL_CreateTextureFromSurface(renderer, text_surface);
+                                        if (text_texture != null) {
+                                            defer c.SDL_DestroyTexture(text_texture);
+
+                                            // Enable linear filtering and alpha blending
+                                            _ = c.SDL_SetTextureScaleMode(text_texture, c.SDL_ScaleModeLinear);
+                                            _ = c.SDL_SetTextureBlendMode(text_texture, c.SDL_BLENDMODE_BLEND);
+
+                                            var dest_rect = c.SDL_Rect{
+                                                .x = @intFromFloat(screen_pos.x),
+                                                .y = @intFromFloat(line_y),
+                                                .w = text_surface.*.w,
+                                                .h = text_surface.*.h,
+                                            };
+                                            _ = c.SDL_RenderCopy(renderer, text_texture, null, &dest_rect);
+                                        }
+                                    }
+                                }
+
+                                // Move to next line
+                                line_y += line_spacing;
+                                line_start = i + 1;
+                            }
+                        }
+                    } else {
+                        // Single-line text: use cached rendering for efficiency
+                        const bbox = elem.bounding_box;
+                        const dest_w: i32 = switch (elem.space) {
+                            .world => @intFromFloat(bbox.w * cam.zoom),
+                            .screen => @intFromFloat(bbox.w),
+                        };
+                        const dest_h: i32 = switch (elem.space) {
+                            .world => @intFromFloat(bbox.h * cam.zoom),
+                            .screen => @intFromFloat(bbox.h),
+                        };
+
+                        const x: i32 = @intFromFloat(screen_pos.x);
+                        const y: i32 = @intFromFloat(screen_pos.y);
+
+                        var text_buf: [256]u8 = undefined;
+                        const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
+
+                        _ = label.cache.draw(
+                            renderer,
+                            font,
+                            null_term_text.ptr,
+                            x,
+                            y,
+                            dest_w,
+                            dest_h,
+                            target_font_size,
+                            label.color,
+                        );
+                    }
                 },
                 .rectangle => {
                     const rect = &elem.data.rectangle;
@@ -961,11 +1021,13 @@ test "Text label bounding box in Y-up world space" {
     // Verify bounding box bottom is below the top (smaller Y value in Y-up)
     try expect(bbox.y < bbox_top);
 
-    // Verify the height is reasonable (approximate font size)
-    try expectEqual(16, bbox.h);
+    // Verify the height includes line spacing: 1 * 16 * 1.2 = 19.2
+    const expected_h: f32 = 16 * LINE_SPACING_MULTIPLIER;
+    try expectEqual(expected_h, bbox.h);
 
     // Verify the bottom is at position.y - height
-    try expectEqual(200 - 16, bbox.y);
+    const expected_bottom: f32 = 200 - expected_h;
+    try expectEqual(expected_bottom, bbox.y);
 
     // Test hit detection: point at element position should be inside bbox
     try expect(bbox.containsWorld(100, 200));
@@ -973,11 +1035,11 @@ test "Text label bounding box in Y-up world space" {
     // Point just above element position (larger Y) should be outside
     try expect(!bbox.containsWorld(100, 201));
 
-    // Point at bottom of text (position.y - height) should be inside
-    try expect(bbox.containsWorld(100, 200 - 16));
+    // Point at bottom of text should be inside
+    try expect(bbox.containsWorld(100, expected_bottom));
 
     // Point just below bottom (smaller Y) should be outside
-    try expect(!bbox.containsWorld(100, 200 - 17));
+    try expect(!bbox.containsWorld(100, expected_bottom - 1));
 }
 
 test "Rectangle bounding box in Y-up world space" {
@@ -1025,34 +1087,34 @@ test "Rectangle bounding box in Y-up world space" {
     try expect(!bbox.containsWorld(151, 200));
 }
 
-test "Text and rectangle bounding boxes are consistent" {
+test "Text and rectangle bounding boxes positioning" {
     var scene = SceneGraph.init(testing.allocator);
     defer scene.deinit();
 
     const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
-    // Create text and rectangle at the same position with same height
+    // Create text and rectangle at the same position
+    // Text uses line spacing (20 * 1.2 = 24), rectangle uses exact height (20)
     const text_id = try scene.addTextLabel("Test", Vec2{ .x = 0, .y = 100 }, 20, white, .world, null);
     const rect_id = try scene.addRectangle(Vec2{ .x = 0, .y = 100 }, 50, 20, 1, white, .world);
 
     const text_elem = scene.findElement(text_id).?;
     const rect_elem = scene.findElement(rect_id).?;
 
-    // Both should have the same top (y + h)
+    // Both should have the same top (y + h) at position.y
     const text_top = text_elem.bounding_box.y + text_elem.bounding_box.h;
     const rect_top = rect_elem.bounding_box.y + rect_elem.bounding_box.h;
-    try expectEqual(100, text_top);
-    try expectEqual(100, rect_top);
+    try expectEqual(@as(f32, 100), text_top);
+    try expectEqual(@as(f32, 100), rect_top);
 
-    // Both should have the same bottom (y)
-    const text_bottom = text_elem.bounding_box.y;
-    const rect_bottom = rect_elem.bounding_box.y;
-    try expectEqual(100 - 20, text_bottom);
-    try expectEqual(100 - 20, rect_bottom);
+    // Text uses line spacing, rectangle uses exact dimensions
+    const text_expected_h: f32 = 20 * LINE_SPACING_MULTIPLIER;
+    try expectEqual(text_expected_h, text_elem.bounding_box.h);
+    try expectEqual(@as(f32, 20), rect_elem.bounding_box.h);
 
-    // Both should have height of 20
-    try expectEqual(20, text_elem.bounding_box.h);
-    try expectEqual(20, rect_elem.bounding_box.h);
+    // Bottoms differ due to line spacing
+    try expectEqual(@as(f32, 100) - text_expected_h, text_elem.bounding_box.y);
+    try expectEqual(@as(f32, 100 - 20), rect_elem.bounding_box.y);
 }
 
 test "Bounding box hit testing for overlapping elements" {
@@ -1099,24 +1161,27 @@ test "Multiline text bounding box calculation" {
 
     const bbox = elem.bounding_box;
 
-    // With 3 lines and font_size=16, total height should be 3 * 16 = 48
-    try expectEqual(48, bbox.h);
+    // With 3 lines, font_size=16, and LINE_SPACING_MULTIPLIER=1.2:
+    // height = 3 * 16 * 1.2 = 57.6
+    const expected_height: f32 = 3 * 16 * LINE_SPACING_MULTIPLIER;
+    try expectEqual(expected_height, bbox.h);
 
     // Top should be at position.y (100)
     const bbox_top = bbox.y + bbox.h;
-    try expectEqual(100, bbox_top);
+    try expectEqual(@as(f32, 100), bbox_top);
 
-    // Bottom should be at position.y - height = 100 - 48 = 52
-    try expectEqual(52, bbox.y);
+    // Bottom should be at position.y - height = 100 - 57.6 = 42.4
+    const expected_bottom: f32 = 100 - expected_height;
+    try expectEqual(expected_bottom, bbox.y);
 
     // Test hit detection at top of text
     try expect(bbox.containsWorld(0, 100));
 
-    // Test hit detection at bottom of text
-    try expect(bbox.containsWorld(0, 52));
+    // Test hit detection at bottom of text (42.4)
+    try expect(bbox.containsWorld(0, expected_bottom));
 
     // Test just below bottom (should be outside)
-    try expect(!bbox.containsWorld(0, 51));
+    try expect(!bbox.containsWorld(0, expected_bottom - 1));
 
     // Test just above top (should be outside)
     try expect(!bbox.containsWorld(0, 101));
@@ -1136,21 +1201,23 @@ test "Single line text vs multiline text bounding boxes" {
     const multi_id = try scene.addTextLabel("Test\n", Vec2{ .x = 0, .y = 100 }, 16, white, .world, null);
     const multi_elem = scene.findElement(multi_id).?;
 
-    // Single line should have height approximately equal to font_size (16)
-    try expectEqual(16, single_elem.bounding_box.h);
+    // Single line: height = 1 * 16 * 1.2 = 19.2
+    const single_expected_h: f32 = 1 * 16 * LINE_SPACING_MULTIPLIER;
+    try expectEqual(single_expected_h, single_elem.bounding_box.h);
 
-    // Multiline with 2 lines (text + empty line after \n) should have height 2 * 16 = 32
-    try expectEqual(32, multi_elem.bounding_box.h);
+    // Multiline with 2 lines (text + empty line after \n): height = 2 * 16 * 1.2 = 38.4
+    const multi_expected_h: f32 = 2 * 16 * LINE_SPACING_MULTIPLIER;
+    try expectEqual(multi_expected_h, multi_elem.bounding_box.h);
 
     // Both should have same top
     const single_top = single_elem.bounding_box.y + single_elem.bounding_box.h;
     const multi_top = multi_elem.bounding_box.y + multi_elem.bounding_box.h;
-    try expectEqual(100, single_top);
-    try expectEqual(100, multi_top);
+    try expectEqual(@as(f32, 100), single_top);
+    try expectEqual(@as(f32, 100), multi_top);
 
     // But different bottoms
-    try expectEqual(84, single_elem.bounding_box.y); // 100 - 16
-    try expectEqual(68, multi_elem.bounding_box.y); // 100 - 32
+    try expectEqual(@as(f32, 100) - single_expected_h, single_elem.bounding_box.y);
+    try expectEqual(@as(f32, 100) - multi_expected_h, multi_elem.bounding_box.y);
 }
 
 test "ElementType.canScaleNonUniform returns correct values" {
