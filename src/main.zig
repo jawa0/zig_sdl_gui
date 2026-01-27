@@ -117,6 +117,10 @@ pub fn main() !void {
     defer c.TTF_Quit();
 
     // Create window
+    // CRITICAL: Set render scale quality BEFORE creating renderer and textures
+    // "0" = nearest, "1" = linear, "2" = anisotropic, "best" = highest available
+    _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "best");
+
     const window = c.SDL_CreateWindow(
         "Zig SDL2 GUI - Scene Graph",
         c.SDL_WINDOWPOS_CENTERED,
@@ -140,9 +144,6 @@ pub fn main() !void {
         return error.RendererCreationFailed;
     };
     defer c.SDL_DestroyRenderer(renderer);
-
-    // Enable linear filtering for better scaled text quality
-    _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "1");
 
     // Load font (initial size doesn't matter much, we'll resize as needed)
     const font = c.TTF_OpenFont("assets/fonts/JetBrainsMono-Regular.ttf", 16) orelse {
@@ -239,10 +240,12 @@ pub fn main() !void {
                     var handle_clicked = false;
                     if (action_mgr.selected_element_id) |sel_id| {
                         if (scene_graph.findElement(sel_id)) |elem| {
-                            // Calculate handle positions
+                            // Calculate handle positions from AUTHORITATIVE bbox
                             const world_bbox = elem.bounding_box;
                             const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
                             const screen_pos = cam.worldToScreen(world_top_left);
+
+                            // Screen dimensions from authoritative bbox (no font measurement!)
                             const screen_w = world_bbox.w * cam.zoom;
                             const screen_h = world_bbox.h * cam.zoom;
 
@@ -309,15 +312,17 @@ pub fn main() !void {
                             if (action_mgr.resize.is_resizing) {
                                 action_mgr.resize.element_start_pos = elem.transform.position;
                                 action_mgr.resize.element_start_scale = elem.transform.scale;
-                                action_mgr.resize.start_bbox_width = world_bbox.w;
-                                action_mgr.resize.start_bbox_height = world_bbox.h;
                                 action_mgr.resize.last_scale_factor = 1.0; // Reset scale tracking
 
                                 if (elem.element_type == .text_label) {
                                     action_mgr.resize.element_start_font_size = elem.data.text_label.font_size;
                                 }
 
-                                // Calculate opposite corner position (anchor point that doesn't move)
+                                // Store AUTHORITATIVE bbox dimensions
+                                action_mgr.resize.start_bbox_width = world_bbox.w;
+                                action_mgr.resize.start_bbox_height = world_bbox.h;
+
+                                // Calculate opposite corner directly in world space from bbox
                                 switch (action_mgr.resize.handle) {
                                     .top_left => {
                                         // Opposite is bottom-right
@@ -382,7 +387,7 @@ pub fn main() !void {
                 const mouse_y = @as(f32, @floatFromInt(event.motion.y));
 
                 if (action_mgr.drag.is_dragging) {
-                    // Update element position
+                    // Update element position (bbox moves with it, dimensions unchanged)
                     if (scene_graph.findElement(action_mgr.drag.element_id)) |elem| {
                         const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                         const delta = Vec2{
@@ -393,84 +398,62 @@ pub fn main() !void {
                             .x = action_mgr.drag.element_start_pos.x + delta.x,
                             .y = action_mgr.drag.element_start_pos.y + delta.y,
                         };
-                        // Update bounding box
-                        scene_graph.updateElementBoundingBox(elem.id, font);
+                        // Update bbox position (dimensions stay the same - authoritative!)
+                        elem.bounding_box.x = elem.transform.position.x;
+                        elem.bounding_box.y = elem.transform.position.y - elem.bounding_box.h;
                     }
                 } else if (action_mgr.resize.is_resizing) {
-                    // Update element scale/size - handle stays locked under cursor
+                    // Resize with AUTHORITATIVE bbox - texture scales to fit!
                     if (scene_graph.findElement(action_mgr.resize.element_id)) |elem| {
-                        // 1. Handle position = cursor (exact, locked under cursor)
+                        // 1. Handle position = cursor (world space)
                         const handle_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
 
-                        // 2. Calculate desired bbox dimensions from geometry
-                        const desired_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
-                        const desired_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
+                        // 2. Calculate new bbox dimensions from handle to opposite corner
+                        const new_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
+                        const new_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
 
-                        // 3. Calculate scale factor maintaining aspect ratio
-                        const width_scale = desired_width / action_mgr.resize.start_bbox_width;
-                        const height_scale = desired_height / action_mgr.resize.start_bbox_height;
+                        // 3. Calculate scale factor to maintain aspect ratio
+                        const width_scale = new_width / action_mgr.resize.start_bbox_width;
+                        const height_scale = new_height / action_mgr.resize.start_bbox_height;
                         var scale_factor = @max(width_scale, height_scale);
 
                         // Clamp scale to reasonable range
                         scale_factor = @max(0.1, @min(10.0, scale_factor));
 
-                        // Add hysteresis to prevent oscillation at high zoom levels
-                        // Only update if scale changes by at least 0.5% to filter out floating-point jitter
+                        // Add hysteresis to prevent oscillation
                         const scale_change = @abs(scale_factor - action_mgr.resize.last_scale_factor);
                         const min_scale_change = 0.005 * action_mgr.resize.last_scale_factor;
                         if (scale_change < min_scale_change) {
-                            // Change too small, use previous scale to avoid oscillation
                             scale_factor = action_mgr.resize.last_scale_factor;
                         } else {
-                            // Significant change, update tracking
                             action_mgr.resize.last_scale_factor = scale_factor;
                         }
 
-                        // 4. Apply scale to font size or transform scale
-                        if (elem.element_type == .text_label) {
-                            // For text, update font size
-                            elem.data.text_label.font_size = action_mgr.resize.element_start_font_size * scale_factor;
-                            elem.data.text_label.cache.deinit(); // Clear cache for re-render
-                        } else {
-                            // For other elements, update scale
-                            elem.transform.scale = Vec2{
-                                .x = action_mgr.resize.element_start_scale.x * scale_factor,
-                                .y = action_mgr.resize.element_start_scale.y * scale_factor,
-                            };
-                        }
+                        // 4. Update AUTHORITATIVE bbox dimensions (texture will scale to fit!)
+                        const bbox_width = action_mgr.resize.start_bbox_width * scale_factor;
+                        const bbox_height = action_mgr.resize.start_bbox_height * scale_factor;
 
-                        // 5. Get ACTUAL bbox dimensions (need this before positioning)
-                        // Call updateBoundingBox to measure actual rendered size
-                        // (bbox position will be wrong here but we'll fix it in step 7)
-                        scene_graph.updateElementBoundingBox(elem.id, font);
-                        const actual_bbox_width = elem.bounding_box.w;
-                        const actual_bbox_height = elem.bounding_box.h;
-
-                        // 6. Position element to keep opposite corner fixed using ACTUAL dimensions
+                        // 5. Position element to keep opposite corner fixed
                         switch (action_mgr.resize.handle) {
                             .top_left => {
-                                // Opposite corner is bottom-right
                                 elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - actual_bbox_width,
-                                    .y = action_mgr.resize.opposite_corner.y + actual_bbox_height,
+                                    .x = action_mgr.resize.opposite_corner.x - bbox_width,
+                                    .y = action_mgr.resize.opposite_corner.y + bbox_height,
                                 };
                             },
                             .top_right => {
-                                // Opposite corner is bottom-left
                                 elem.transform.position = Vec2{
                                     .x = action_mgr.resize.opposite_corner.x,
-                                    .y = action_mgr.resize.opposite_corner.y + actual_bbox_height,
+                                    .y = action_mgr.resize.opposite_corner.y + bbox_height,
                                 };
                             },
                             .bottom_left => {
-                                // Opposite corner is top-right
                                 elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - actual_bbox_width,
+                                    .x = action_mgr.resize.opposite_corner.x - bbox_width,
                                     .y = action_mgr.resize.opposite_corner.y,
                                 };
                             },
                             .bottom_right => {
-                                // Opposite corner is top-left
                                 elem.transform.position = Vec2{
                                     .x = action_mgr.resize.opposite_corner.x,
                                     .y = action_mgr.resize.opposite_corner.y,
@@ -478,10 +461,22 @@ pub fn main() !void {
                             },
                         }
 
-                        // 7. Update bbox to reflect new position (dimensions unchanged)
-                        // This ensures bbox is always consistent with element position
+                        // 6. Update bbox to new dimensions and position
                         elem.bounding_box.x = elem.transform.position.x;
-                        elem.bounding_box.y = elem.transform.position.y - actual_bbox_height;
+                        elem.bounding_box.y = elem.transform.position.y - bbox_height;
+                        elem.bounding_box.w = bbox_width;
+                        elem.bounding_box.h = bbox_height;
+
+                        // 7. Update scale/size for proper re-rendering
+                        if (elem.element_type == .rectangle) {
+                            elem.transform.scale = Vec2{
+                                .x = action_mgr.resize.element_start_scale.x * scale_factor,
+                                .y = action_mgr.resize.element_start_scale.y * scale_factor,
+                            };
+                        } else if (elem.element_type == .text_label) {
+                            // Update font_size so cache knows to re-render at new size
+                            elem.data.text_label.font_size = action_mgr.resize.element_start_font_size * scale_factor;
+                        }
                     }
                 }
             }
@@ -655,6 +650,8 @@ pub fn main() !void {
                 const world_bbox = elem.bounding_box;
                 const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
                 const screen_pos = cam.worldToScreen(world_top_left);
+
+                // Calculate screen dimensions from AUTHORITATIVE bbox
                 const screen_w = world_bbox.w * cam.zoom;
                 const screen_h = world_bbox.h * cam.zoom;
 
@@ -744,6 +741,10 @@ pub fn main() !void {
                                 const text_texture = c.SDL_CreateTextureFromSurface(renderer, text_surface);
                                 if (text_texture != null) {
                                     defer c.SDL_DestroyTexture(text_texture);
+
+                                    // Enable linear filtering and alpha blending for smooth scaling
+                                    _ = c.SDL_SetTextureScaleMode(text_texture, c.SDL_ScaleModeLinear);
+                                    _ = c.SDL_SetTextureBlendMode(text_texture, c.SDL_BLENDMODE_BLEND);
 
                                     var dest_rect = c.SDL_Rect{
                                         .x = @intFromFloat(screen_pos.x),

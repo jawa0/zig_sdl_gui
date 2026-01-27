@@ -120,19 +120,7 @@ pub fn drawRectangleOutline(
 /// Draw text using a cache at the specified screen position with given font size.
 /// This is a low-level drawing function that can be called independently of the scene graph.
 /// Returns the displayed dimensions if successful.
-pub fn drawTextCached(
-    cache: *TextCache,
-    renderer: *c.SDL_Renderer,
-    font: *c.TTF_Font,
-    text: [*:0]const u8,
-    x: i32,
-    y: i32,
-    font_size: f32,
-    color: c.SDL_Color,
-) ?DrawDimensions {
-    const dims = cache.draw(renderer, font, text, x, y, font_size, color) orelse return null;
-    return DrawDimensions{ .w = dims.w, .h = dims.h };
-}
+// Removed drawTextCached - now using cache.draw() directly with explicit dimensions
 
 pub const Element = struct {
     id: u32,
@@ -419,13 +407,18 @@ pub const SceneGraph = struct {
     }
 
     /// Update an element's bounding box (call when element moves or scales)
+    /// For world-space text elements, camera parameter is needed to calculate correct dimensions
     pub fn updateElementBoundingBox(self: *SceneGraph, id: u32, font: *c.TTF_Font) void {
         const elem = self.findElement(id) orelse return;
 
         switch (elem.element_type) {
             .text_label => {
                 const label = &elem.data.text_label;
-                _ = c.TTF_SetFontSize(font, @intFromFloat(label.font_size));
+
+                // Calculate font size: for world-space elements, use base size (bbox is in world units)
+                // The width/height we get from TTF_SizeText will be in world-space units
+                const measure_font_size = label.font_size;
+                _ = c.TTF_SetFontSize(font, @intFromFloat(measure_font_size));
 
                 // Check if text contains newlines (multiline)
                 const has_newline = std.mem.indexOfScalar(u8, label.text, '\n') != null;
@@ -549,8 +542,20 @@ pub const SceneGraph = struct {
                         },
                     };
 
-                    // Determine font size based on coordinate space
-                    const target_font_size = switch (elem.space) {
+                    // Calculate destination dimensions from AUTHORITATIVE bbox
+                    // Bbox is in world units, scale to screen pixels
+                    const bbox = elem.bounding_box;
+                    const dest_w: i32 = switch (elem.space) {
+                        .world => @intFromFloat(bbox.w * cam.zoom),
+                        .screen => @intFromFloat(bbox.w),
+                    };
+                    const dest_h: i32 = switch (elem.space) {
+                        .world => @intFromFloat(bbox.h * cam.zoom),
+                        .screen => @intFromFloat(bbox.h),
+                    };
+
+                    // Calculate target font size for current zoom (for optimal rasterization)
+                    const target_font_size: f32 = switch (elem.space) {
                         .world => label.font_size * cam.zoom,
                         .screen => label.font_size,
                     };
@@ -559,46 +564,21 @@ pub const SceneGraph = struct {
                     const x: i32 = @intFromFloat(screen_pos.x);
                     const y: i32 = @intFromFloat(screen_pos.y);
 
-                    // Check if text contains newlines - handle multi-line separately
-                    const has_newline = std.mem.indexOfScalar(u8, label.text, '\n') != null;
+                    // Render text - will re-rasterize at target size if zoom changed
+                    var text_buf: [256]u8 = undefined;
+                    const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
 
-                    if (has_newline) {
-                        // Multi-line text: render line by line without caching
-                        _ = c.TTF_SetFontSize(font, @intFromFloat(target_font_size));
-                        var line_y: i32 = y;
-                        const line_height: i32 = @intFromFloat(target_font_size);
-                        var line_start: usize = 0;
-                        var i: usize = 0;
-
-                        while (i <= label.text.len) : (i += 1) {
-                            if (i == label.text.len or label.text[i] == '\n') {
-                                // Render this line if not empty
-                                if (i > line_start) {
-                                    const line = label.text[line_start..i];
-                                    var line_buf: [256]u8 = undefined;
-                                    const line_z = std.fmt.bufPrintZ(&line_buf, "{s}", .{line}) catch continue;
-                                    _ = text_cache.drawText(renderer, font, line_z.ptr, x, line_y, label.color);
-                                }
-                                line_y += line_height;
-                                line_start = i + 1;
-                            }
-                        }
-                    } else {
-                        // Single-line text: use cache
-                        var text_buf: [256]u8 = undefined;
-                        const null_term_text = std.fmt.bufPrintZ(&text_buf, "{s}", .{label.text}) catch continue;
-
-                        _ = drawTextCached(
-                            &label.cache,
-                            renderer,
-                            font,
-                            null_term_text.ptr,
-                            x,
-                            y,
-                            target_font_size,
-                            label.color,
-                        );
-                    }
+                    _ = label.cache.draw(
+                        renderer,
+                        font,
+                        null_term_text.ptr,
+                        x,
+                        y,
+                        dest_w,
+                        dest_h,
+                        target_font_size,  // Re-render if zoom changed significantly
+                        label.color,
+                    );
                 },
                 .rectangle => {
                     const rect = &elem.data.rectangle;
