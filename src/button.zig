@@ -12,12 +12,14 @@ pub const ButtonContent = union(enum) {
 pub const IconType = enum {
     cursor_arrow, // Selection tool - arrow cursor
     text_t, // Text tool - "T" glyph
+    rectangle, // Rectangle tool
 };
 
 /// Icon texture cache - must be initialized before rendering buttons with icons
 pub const IconCache = struct {
     cursor_arrow_texture: ?*c.SDL_Texture = null,
     text_t_texture: ?*c.SDL_Texture = null,
+    rectangle_texture: ?*c.SDL_Texture = null,
     renderer: ?*c.SDL_Renderer = null,
 
     pub fn init(renderer: *c.SDL_Renderer) IconCache {
@@ -45,6 +47,16 @@ pub const IconCache = struct {
             }
         }
 
+        // Load rectangle icon
+        const rect_surface = c.IMG_Load("assets/icons/rectangle.png");
+        if (rect_surface != null) {
+            defer c.SDL_FreeSurface(rect_surface);
+            cache.rectangle_texture = c.SDL_CreateTextureFromSurface(renderer, rect_surface);
+            if (cache.rectangle_texture != null) {
+                _ = c.SDL_SetTextureBlendMode(cache.rectangle_texture, c.SDL_BLENDMODE_BLEND);
+            }
+        }
+
         return cache;
     }
 
@@ -56,6 +68,10 @@ pub const IconCache = struct {
         if (self.text_t_texture != null) {
             c.SDL_DestroyTexture(self.text_t_texture);
             self.text_t_texture = null;
+        }
+        if (self.rectangle_texture != null) {
+            c.SDL_DestroyTexture(self.rectangle_texture);
+            self.rectangle_texture = null;
         }
     }
 };
@@ -204,6 +220,33 @@ pub const Button = struct {
                         _ = c.SDL_RenderCopy(renderer, text_texture, null, &text_rect);
                     }
                 }
+            },
+            .rectangle => {
+                // Try to use cached PNG texture first
+                if (icon_cache) |cache| {
+                    if (cache.rectangle_texture) |texture| {
+                        var dest_rect = c.SDL_Rect{
+                            .x = center_x - @divTrunc(icon_size, 2),
+                            .y = center_y - @divTrunc(icon_size, 2),
+                            .w = icon_size,
+                            .h = icon_size,
+                        };
+                        _ = c.SDL_RenderCopy(renderer, texture, null, &dest_rect);
+                        return;
+                    }
+                }
+
+                // Fallback: draw simple rectangle outline if texture not available
+                _ = c.SDL_SetRenderDrawColor(renderer, content_color.r, content_color.g, content_color.b, content_color.a);
+                const rect_w: i32 = 14;
+                const rect_h: i32 = 10;
+                var rect = c.SDL_Rect{
+                    .x = center_x - @divTrunc(rect_w, 2),
+                    .y = center_y - @divTrunc(rect_h, 2),
+                    .w = rect_w,
+                    .h = rect_h,
+                };
+                _ = c.SDL_RenderDrawRect(renderer, &rect);
             },
         }
     }

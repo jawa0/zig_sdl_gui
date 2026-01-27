@@ -199,6 +199,23 @@ pub const DragSelectState = struct {
     }
 };
 
+/// Rectangle creation state (click and drag to create rectangle)
+pub const RectangleCreateState = struct {
+    is_active: bool = false,
+    start_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+    current_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+
+    /// Get the normalized rectangle bounds (min/max regardless of drag direction)
+    pub fn getBounds(self: *const RectangleCreateState) struct { min_x: f32, min_y: f32, max_x: f32, max_y: f32 } {
+        return .{
+            .min_x = @min(self.start_world.x, self.current_world.x),
+            .min_y = @min(self.start_world.y, self.current_world.y),
+            .max_x = @max(self.start_world.x, self.current_world.x),
+            .max_y = @max(self.start_world.y, self.current_world.y),
+        };
+    }
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -213,6 +230,7 @@ pub const ActionHandler = struct {
     drag: DragState = DragState{},
     resize: ResizeState = ResizeState{},
     drag_select: DragSelectState = DragSelectState{},
+    rect_create: RectangleCreateState = RectangleCreateState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};

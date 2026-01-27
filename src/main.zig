@@ -209,6 +209,13 @@ pub fn main() !void {
         .h = 30,
         .content = .{ .icon = .text_t },
     };
+    const rectangle_button = Button{
+        .x = 90,
+        .y = 10,
+        .w = 36,
+        .h = 30,
+        .content = .{ .icon = .rectangle },
+    };
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -288,9 +295,9 @@ pub fn main() !void {
                 }
             }
 
-            // Handle Escape in text_placement mode to cancel
-            if (action_mgr.current_tool == .text_placement and event.type == c.SDL_KEYDOWN and
-                event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE)
+            // Handle Escape in text_placement or rectangle_placement mode to cancel
+            if ((action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement) and
+                event.type == c.SDL_KEYDOWN and event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE)
             {
                 action_mgr.current_tool = .selection;
                 if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
@@ -346,6 +353,16 @@ pub fn main() !void {
                     current_cursor = .crosshair;
                     continue;
                 }
+
+                if (rectangle_button.contains(click_x, click_y)) {
+                    finishTextEdit.call(&action_mgr);
+                    // Enter rectangle placement mode
+                    action_mgr.current_tool = .rectangle_placement;
+                    action_mgr.selection.clear();
+                    if (cursor_crosshair != null) c.SDL_SetCursor(cursor_crosshair);
+                    current_cursor = .crosshair;
+                    continue;
+                }
             }
 
             // Handle clicking on empty canvas while editing text - ends editing and starts drag select
@@ -354,7 +371,7 @@ pub fn main() !void {
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
                 // Skip if clicking toolbar buttons (handled above)
-                if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y)) {
+                if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y) and !rectangle_button.contains(click_x, click_y)) {
                     // Check if clicking on empty canvas (no element hit)
                     if (scene_graph.hitTest(click_x, click_y, &cam) == null) {
                         // End text editing first
@@ -408,6 +425,12 @@ pub fn main() !void {
                     // Reset cursor to arrow
                     if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
                     current_cursor = .arrow;
+                } else if (action_mgr.current_tool == .rectangle_placement) {
+                    // Start rectangle creation drag
+                    const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                    action_mgr.rect_create.is_active = true;
+                    action_mgr.rect_create.start_world = world_pos;
+                    action_mgr.rect_create.current_world = world_pos;
                 } else if (action_mgr.current_tool == .selection) {
                     // Check for shift modifier
                     const mod_state = c.SDL_GetModState();
@@ -807,6 +830,10 @@ pub fn main() !void {
                             }
                         }
                     }
+                } else if (action_mgr.rect_create.is_active) {
+                    // Update rectangle creation drag
+                    const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    action_mgr.rect_create.current_world = current_world;
                 } else if (action_mgr.drag_select.is_active) {
                     // Update drag-select rectangle and selection
                     const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
@@ -838,8 +865,8 @@ pub fn main() !void {
                     const world_pos = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                     var desired_cursor: @TypeOf(current_cursor) = .arrow;
 
-                    // In text_placement mode, always show crosshair
-                    if (action_mgr.current_tool == .text_placement) {
+                    // In text_placement or rectangle_placement mode, always show crosshair
+                    if (action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement) {
                         desired_cursor = .crosshair;
                     }
 
@@ -931,12 +958,40 @@ pub fn main() !void {
                 }
             }
 
-            // Handle mouse button up to end drag/resize/drag-select
+            // Handle mouse button up to end drag/resize/drag-select/rectangle creation
             if (event.type == c.SDL_MOUSEBUTTONUP and event.button.button == c.SDL_BUTTON_LEFT) {
                 if (action_mgr.drag.is_dragging) {
                     _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
                 } else if (action_mgr.resize.is_resizing) {
                     _ = action_mgr.handle(action.ActionParams{ .end_resize_element = {} }, &cam);
+                } else if (action_mgr.rect_create.is_active) {
+                    // Finish rectangle creation
+                    action_mgr.rect_create.is_active = false;
+                    const bounds = action_mgr.rect_create.getBounds();
+                    const width = bounds.max_x - bounds.min_x;
+                    const height = bounds.max_y - bounds.min_y;
+
+                    // Only create rectangle if it has some size (avoid tiny/accidental clicks)
+                    if (width > 5 and height > 5) {
+                        const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+                        // Position is at top-left in world space (max_y is top in Y-up)
+                        const new_id = scene_graph.addRectangle(
+                            Vec2{ .x = bounds.min_x, .y = bounds.max_y },
+                            width,
+                            height,
+                            2.0,
+                            black,
+                            .world,
+                        ) catch null;
+                        // Select the new rectangle and switch back to selection mode
+                        if (new_id) |id| {
+                            action_mgr.selection.clear();
+                            action_mgr.selection.add(id);
+                        }
+                    }
+                    action_mgr.current_tool = .selection;
+                    if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                    current_cursor = .arrow;
                 } else if (action_mgr.drag_select.is_active) {
                     action_mgr.drag_select.is_active = false;
                 }
@@ -1098,6 +1153,30 @@ pub fn main() !void {
                 colors.border.a,
             );
             _ = c.SDL_RenderDrawRect(renderer, &fill_rect);
+        }
+
+        // Render rectangle creation preview
+        if (action_mgr.rect_create.is_active) {
+            const bounds = action_mgr.rect_create.getBounds();
+
+            // Convert world bounds to screen coordinates
+            const world_top_left = Vec2{ .x = bounds.min_x, .y = bounds.max_y };
+            const screen_pos = cam.worldToScreen(world_top_left);
+            const screen_w = (bounds.max_x - bounds.min_x) * cam.zoom;
+            const screen_h = (bounds.max_y - bounds.min_y) * cam.zoom;
+
+            const x: i32 = @intFromFloat(screen_pos.x);
+            const y: i32 = @intFromFloat(screen_pos.y);
+            const w: i32 = @intFromFloat(screen_w);
+            const h: i32 = @intFromFloat(screen_h);
+
+            // Draw rectangle outline preview (black, 2px thick)
+            _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            const preview_rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
+            _ = c.SDL_RenderDrawRect(renderer, &preview_rect);
+            // Draw second rect for thickness
+            const inner_rect = c.SDL_Rect{ .x = x + 1, .y = y + 1, .w = w - 2, .h = h - 2 };
+            _ = c.SDL_RenderDrawRect(renderer, &inner_rect);
         }
 
         // Render all scene elements
@@ -1374,6 +1453,7 @@ pub fn main() !void {
         // Render UI buttons
         select_button.render(renderer, font, action_mgr.current_tool == .selection, &icon_cache);
         text_button.render(renderer, font, action_mgr.current_tool == .text_placement, &icon_cache);
+        rectangle_button.render(renderer, font, action_mgr.current_tool == .rectangle_placement, &icon_cache);
 
         // Present the frame (swap buffers)
         c.SDL_RenderPresent(renderer);
