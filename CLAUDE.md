@@ -63,7 +63,9 @@ zig build -Doptimize=ReleaseFast
 
 - `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
-- `src/tool.zig` - Tool system enum (Selection, TextCreation)
+- `src/tool.zig` - Tool system enum (Selection, TextCreation, TextPlacement, RectanglePlacement)
+- `src/text_buffer.zig` - Reusable text buffer with cursor support (like Emacs buffers)
+- `src/button.zig` - Reusable UI button component with icon support
 - `src/grid.zig` - Grid rendering system with recursive subdivision and zoom-based fading
 - `src/math.zig` - Math utilities including Vec2, Transform, lerp, and clamp functions
 - `src/action.zig` - Action enum and parameters for input indirection
@@ -74,91 +76,162 @@ zig build -Doptimize=ReleaseFast
 - `libs/SDL2/` - Windows SDL2 libraries (headers, .lib, .dll)
 - `libs/SDL2_ttf/` - Windows SDL2_ttf libraries (headers, .lib, .dll)
 - `assets/fonts/` - JetBrains Mono font for text rendering
+- `assets/icons/` - PNG icons for toolbar buttons
 
 The app uses SDL2's hardware-accelerated renderer with vsync for double buffering. Frame timing is handled by vsync with a fallback delay loop. FPS is displayed in the top-right corner using SDL2_ttf.
 
 ## User Actions & Input System
 
-### Current User Actions
+### Tools
 
-The application currently supports these user actions:
+The application has four tools, accessible via the toolbar or keyboard:
 
-1. **Quit Application** - Exit the application
-2. **Pan Canvas** - Move the camera view around the infinite canvas
-3. **Zoom In at Cursor** - Zoom in 10% centered on cursor position
-4. **Zoom Out at Cursor** - Zoom out 10% centered on cursor position
-5. **Toggle Color Scheme** - Switch between light and dark color schemes
-6. **Toggle Grid** - Show/hide the world-space grid overlay
-7. **Toggle Bounding Boxes** - Show/hide debug bounding box visualization
-8. **Begin Text Edit** - Switch to Text Creation tool and enter text editing mode at double-click location
-9. **End Text Edit** - Exit text editing mode and switch back to Selection tool
-10. **Select Element** - Select an element by clicking on it (Selection tool only)
-11. **Deselect All** - Deselect by clicking empty canvas (Selection tool only)
-12. **Resize Window** - Change window dimensions
+1. **Selection Tool** - Select, move, resize, and clone elements
+2. **Text Tool** - Click to place new text, enter text editing mode
+3. **Rectangle Tool** - Click and drag to create rectangles
+4. **Text Editing Mode** - Active when editing text (not a toolbar tool)
 
-### Current Input Bindings
+### Global Keybindings (All Platforms)
 
-| Action | Input Binding | Implementation |
-|--------|--------------|----------------|
-| Quit Application | Escape key (when not editing) or window close | `input.zig:36-42` |
-| Toggle Color Scheme | D key (when not editing) | `input.zig:45-47` |
-| Toggle Grid | G key (when not editing) | `input.zig:48-50` |
-| Begin Text Edit | Double-click left mouse button | `input.zig:58-74` |
-| End Text Edit | Escape key (while editing) | `input.zig:38` |
-| Text Input | Alphanumeric keys | `main.zig:216-223` |
-| New Line | Enter key | `main.zig:230-237` |
-| Backspace | Backspace key | `main.zig:224-229` |
-| Pan Canvas | Trackpad/mouse wheel scroll | `input.zig:86-92` |
-| Zoom In at Cursor | Ctrl + scroll up | `input.zig:75-84` |
-| Zoom Out at Cursor | Ctrl + scroll down | `input.zig:75-84` |
-| Resize Window | Drag window edges/corners | SDL window event |
+| Action | Keybinding | Notes |
+|--------|------------|-------|
+| Pan Canvas | Scroll wheel / Trackpad scroll | Moves the view |
+| Zoom In/Out | Ctrl + Scroll | Zooms centered on cursor |
+| Toggle Color Scheme | D | Light/dark mode (when not editing) |
+| Toggle Grid | G | Show/hide grid (when not editing) |
+| Toggle Bounding Boxes | B | Debug visualization (when not editing) |
+| Cancel Tool | Escape | Returns to Selection tool |
+| Close Window | Window close button | Exits application |
+
+### Selection Tool
+
+| Action | Input | Notes |
+|--------|-------|-------|
+| Select element | Click on element | Replaces selection |
+| Add/remove from selection | Shift + Click | Toggle selection |
+| Drag-select | Click + drag on empty canvas | Select elements in rectangle |
+| Move element(s) | Drag selected element | Moves all selected |
+| Clone element(s) | Alt + Drag | Creates copies on first move |
+| Resize element(s) | Drag corner handles | Proportional scaling |
+| Edit text | Double-click text element | Enters text editing mode |
+| Create text | Double-click empty canvas | Creates new text at location |
+
+### Text Tool (Text Placement Mode)
+
+| Action | Input | Notes |
+|--------|-------|-------|
+| Place text | Click on canvas | Creates text and enters editing mode |
+| Cancel | Escape | Returns to Selection tool |
+
+### Rectangle Tool
+
+| Action | Input | Notes |
+|--------|-------|-------|
+| Create rectangle | Click + drag | Draws rectangle from corner to corner |
+| Cancel | Escape | Returns to Selection tool |
+
+### Text Editing Mode
+
+#### Basic Editing
+
+| Action | Keybinding | Notes |
+|--------|------------|-------|
+| Type text | Any character key | Inserts at cursor |
+| New line | Enter | Inserts line break |
+| Delete backward | Backspace | Deletes character before cursor |
+| Delete forward | Delete | Deletes character at cursor |
+| Finish editing | Escape | Saves text, returns to Selection tool |
+| Position cursor | Click within text | Moves cursor to click position |
+
+#### Cursor Movement - All Platforms
+
+| Action | Keybinding |
+|--------|------------|
+| Move left | Left Arrow |
+| Move right | Right Arrow |
+| Move up (previous line) | Up Arrow |
+| Move down (next line) | Down Arrow |
+| Beginning of line | Home |
+| End of line | End |
+| Beginning of buffer | Ctrl + Home |
+| End of buffer | Ctrl + End |
+| Beginning of line (Emacs) | Ctrl + A |
+| End of line (Emacs) | Ctrl + E |
+
+#### Cursor Movement - Windows/Linux
+
+| Action | Keybinding |
+|--------|------------|
+| Previous word | Ctrl + Left Arrow |
+| Next word | Ctrl + Right Arrow |
+
+#### Cursor Movement - macOS
+
+| Action | Keybinding |
+|--------|------------|
+| Previous word | Option + Left Arrow |
+| Next word | Option + Right Arrow |
+| Beginning of line | Cmd + Left Arrow |
+| End of line | Cmd + Right Arrow |
+| Beginning of buffer | Cmd + Up Arrow |
+| End of buffer | Cmd + Down Arrow |
 
 ### Input Handling Architecture
 
 - **`src/input.zig`** - `InputState` struct with `handleEvent()` method processes SDL events and returns `ActionParams`
-  - Handles keyboard (Escape, D for color toggle), mouse motion, mouse wheel
+  - Handles keyboard events, mouse motion, mouse wheel, double-click detection
   - Checks for Ctrl modifier to distinguish pan (scroll) from zoom (Ctrl+scroll)
   - Returns action parameters to be processed by `ActionHandler`
 - **`src/action.zig`** - Defines `Action` enum and `ActionParams` union for action indirection
 - **`src/action_handler.zig`** - `ActionHandler` struct processes actions and updates application state
+  - Contains `TextEditState` with `TextBuffer` for text editing
+  - Contains `BlinkAnimation` for cursor blink with restart on movement
+  - Contains `SelectionSet` for multi-select support
+- **`src/text_buffer.zig`** - Reusable text buffer with full cursor movement support
 - **`src/main.zig`** - Main event loop coordinates input handling and action processing
 
 ### Implementation Notes
 
 - Tool system:
-  - Two tools: Selection (default) and TextCreation
+  - Four tools: Selection (default), TextCreation, TextPlacement, RectanglePlacement
+  - Toolbar with icon buttons for Selection, Text, and Rectangle tools
   - Current tool tracked in ActionHandler (current_tool field)
-  - Tool switching: Double-click blank canvas switches to TextCreation, Escape switches back to Selection
-  - Tool determines mouse click behavior
-  - No toolbar UI yet - will be added later
+  - Double-click on blank canvas or text element enters text editing
+  - Escape returns to Selection tool from any other tool
 - Selection system:
+  - Multi-select support with SelectionSet (up to 256 elements)
+  - Shift+click to add/remove from selection
+  - Drag-select (marquee) to select elements within rectangle
   - Hit testing: checks bounding boxes of all elements at click position
   - Z-order: elements later in list are on top, hit-tested first (backward iteration)
-  - Selected element ID tracked in ActionHandler (selected_element_id field)
-  - Blue bounding box (2px border) drawn for selected elements
-  - Selection mode: single click selects, click empty space deselects
-  - Text creation mode: double-click creates text
+  - Blue bounding box drawn for selected elements
+  - Union bounding box with resize handles for multi-select
+- Element manipulation:
+  - Drag to move selected elements
+  - Alt+drag to clone elements (creates copies on first movement)
+  - Corner handles for proportional resizing
+  - Resize scales all selected elements uniformly
 - Bounding boxes:
   - Calculated dynamically based on element type and camera zoom
   - Text labels: use TTF_SizeText to get dimensions
-  - Rectangles: use width/height scaled by zoom
-  - All calculations in screen coordinates
+  - Rectangles: use width/height (supports non-uniform scaling)
+  - All calculations in world coordinates, converted to screen for rendering
 - Zoom is cursor-centered: the point under the cursor stays fixed during zoom operations
 - Pan uses trackpad/mouse wheel scroll (configurable speed: 20 pixels per scroll unit)
 - Ctrl modifier distinguishes between pan (no Ctrl) and zoom (with Ctrl)
 - Zoom range is constrained to 1%-10,000% (0.01x to 100x, enforced in `camera.zig`)
 - Text editing system:
+  - TextBuffer with full cursor support (4096 character limit)
+  - Cursor movement: char, word, line, buffer start/end
+  - Platform-aware keybindings (Ctrl on Windows/Linux, Cmd/Option on macOS)
+  - Click within text to position cursor
+  - Double-click existing text to edit it (cursor at end)
+  - Cursor blink resets on any cursor movement for immediate feedback
   - Double-click detection: 500ms window, 5px tolerance
-  - Text buffer: 1024 character limit
-  - Cursor rendering: vertical line that blinks every 500ms
   - SDL_StartTextInput/SDL_StopTextInput called when entering/exiting edit mode
   - Text positioned in world space at click location
-  - Escape key behavior changes based on edit mode (end edit vs quit app)
-  - Supports multi-line text with Enter key
-  - On exit (Escape): creates persistent scene element if text is non-empty
-  - Empty check: trims whitespace for validation but preserves all spaces in actual text
-  - Whitespace-only text (e.g., "   ") does not create an element
-  - Text with content (e.g., "  hello  ") preserves all spaces
+  - On exit (Escape): creates/updates scene element if text is non-empty
+  - Whitespace-only text does not create an element
 - Grid system: Recursive subdivision with zoom-based fading
   - Base spacing: 150 world units for major divisions (~6 per screen height at zoom 1.0)
   - Minor divisions: 5 per major division (30, 6, 1.2, ... world units)

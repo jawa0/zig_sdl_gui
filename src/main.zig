@@ -300,10 +300,16 @@ pub fn main() !void {
                         continue;
                     }
                     // Arrow keys - cursor movement
-                    // On macOS: Cmd+Left/Right = line start/end, Cmd+Up/Down = buffer start/end
+                    // Word movement: Ctrl+Arrow (Windows/Linux), Option+Arrow (macOS)
+                    // Line start/end: Cmd+Arrow (macOS only)
+                    const alt_held = (mod_state & c.KMOD_ALT) != 0;
+                    const word_mod = if (is_macos) alt_held else ctrl_held;
+
                     if (scancode == c.SDL_SCANCODE_LEFT) {
                         if (is_macos and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToLineStart();
+                        } else if (word_mod) {
+                            action_mgr.text_edit.buffer.cursorToPrevWord();
                         } else {
                             action_mgr.text_edit.buffer.cursorBackward();
                         }
@@ -313,6 +319,8 @@ pub fn main() !void {
                     if (scancode == c.SDL_SCANCODE_RIGHT) {
                         if (is_macos and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToLineEnd();
+                        } else if (word_mod) {
+                            action_mgr.text_edit.buffer.cursorToNextWord();
                         } else {
                             action_mgr.text_edit.buffer.cursorForward();
                         }

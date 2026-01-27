@@ -284,11 +284,53 @@ pub const TextBuffer = struct {
     /// Check if buffer has any non-whitespace content
     pub fn hasContent(self: *const TextBuffer) bool {
         for (self.content[0..self.len]) |ch| {
-            if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+            if (!isWhitespace(ch)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /// Check if a character is whitespace
+    fn isWhitespace(ch: u8) bool {
+        return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r';
+    }
+
+    /// Move cursor to the beginning of the next word
+    /// Skips current word (if in one), then skips whitespace to find next word
+    pub fn cursorToNextWord(self: *TextBuffer) void {
+        const text = self.content[0..self.len];
+
+        // Skip non-whitespace (current word)
+        while (self.cursor < self.len and !isWhitespace(text[self.cursor])) {
+            self.cursor += 1;
+        }
+
+        // Skip whitespace to find start of next word
+        while (self.cursor < self.len and isWhitespace(text[self.cursor])) {
+            self.cursor += 1;
+        }
+    }
+
+    /// Move cursor to the beginning of the previous word
+    /// If in a word, moves to its start. If at start or in whitespace, finds previous word.
+    pub fn cursorToPrevWord(self: *TextBuffer) void {
+        if (self.cursor == 0) return;
+
+        const text = self.content[0..self.len];
+
+        // Move back one to get off potential word boundary
+        self.cursor -= 1;
+
+        // Skip whitespace backwards
+        while (self.cursor > 0 and isWhitespace(text[self.cursor])) {
+            self.cursor -= 1;
+        }
+
+        // Skip non-whitespace backwards to find start of word
+        while (self.cursor > 0 and !isWhitespace(text[self.cursor - 1])) {
+            self.cursor -= 1;
+        }
     }
 };
 
@@ -556,4 +598,88 @@ test "TextBuffer newline insertion" {
 
     try testing.expectEqualStrings("Hello\nWorld", buf.getText());
     try testing.expectEqual(@as(usize, 2), buf.getLineCount());
+}
+
+test "TextBuffer.cursorToNextWord basic" {
+    var buf = TextBuffer.init();
+    buf.insert("hello world test");
+    buf.cursor = 0;
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 6), buf.cursor); // start of "world"
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 12), buf.cursor); // start of "test"
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 16), buf.cursor); // end of buffer
+}
+
+test "TextBuffer.cursorToNextWord from middle of word" {
+    var buf = TextBuffer.init();
+    buf.insert("hello world");
+    buf.cursor = 2; // in middle of "hello"
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 6), buf.cursor); // start of "world"
+}
+
+test "TextBuffer.cursorToNextWord multiple spaces" {
+    var buf = TextBuffer.init();
+    buf.insert("hello   world");
+    buf.cursor = 0;
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 8), buf.cursor); // start of "world"
+}
+
+test "TextBuffer.cursorToNextWord with newlines" {
+    var buf = TextBuffer.init();
+    buf.insert("hello\nworld");
+    buf.cursor = 0;
+
+    buf.cursorToNextWord();
+    try testing.expectEqual(@as(usize, 6), buf.cursor); // start of "world"
+}
+
+test "TextBuffer.cursorToPrevWord basic" {
+    var buf = TextBuffer.init();
+    buf.insert("hello world test");
+    buf.cursor = 16; // end of buffer
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 12), buf.cursor); // start of "test"
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 6), buf.cursor); // start of "world"
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 0), buf.cursor); // start of "hello"
+}
+
+test "TextBuffer.cursorToPrevWord from middle of word" {
+    var buf = TextBuffer.init();
+    buf.insert("hello world");
+    buf.cursor = 8; // middle of "world"
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 6), buf.cursor); // start of "world"
+}
+
+test "TextBuffer.cursorToPrevWord multiple spaces" {
+    var buf = TextBuffer.init();
+    buf.insert("hello   world");
+    buf.cursor = 13; // end of buffer
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 8), buf.cursor); // start of "world"
+}
+
+test "TextBuffer.cursorToPrevWord at start does nothing" {
+    var buf = TextBuffer.init();
+    buf.insert("hello");
+    buf.cursor = 0;
+
+    buf.cursorToPrevWord();
+    try testing.expectEqual(@as(usize, 0), buf.cursor);
 }
