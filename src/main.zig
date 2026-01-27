@@ -52,6 +52,34 @@ fn populateScene(scene_graph: *SceneGraph, colors: ColorScheme, font: *c.TTF_Fon
         font,
     );
 
+    // Add sample text elements at various positions
+    _ = try scene_graph.addTextLabel(
+        "text one",
+        Vec2{ .x = -150, .y = 120 },
+        base_font_size,
+        colors.text,
+        .world,
+        font,
+    );
+
+    _ = try scene_graph.addTextLabel(
+        "text two",
+        Vec2{ .x = 100, .y = -80 },
+        base_font_size,
+        colors.text,
+        .world,
+        font,
+    );
+
+    _ = try scene_graph.addTextLabel(
+        "text three",
+        Vec2{ .x = -50, .y = -200 },
+        base_font_size,
+        colors.text,
+        .world,
+        font,
+    );
+
     // Large red rectangle on the left
     _ = try scene_graph.addRectangle(
         Vec2{ .x = -400, .y = -150 },
@@ -344,7 +372,7 @@ pub fn main() !void {
 
                             handle_clicked = true;
                         } else {
-                            // Not on handle, check if clicking within the union bounding box (for dragging)
+                            // Not on handle, check if clicking within the union bounding box
                             const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
 
                             // Calculate union bounding box in world space
@@ -367,26 +395,37 @@ pub fn main() !void {
                             if (world_pos.x >= drag_union_min_x and world_pos.x <= drag_union_max_x and
                                 world_pos.y >= drag_union_min_y and world_pos.y <= drag_union_max_y)
                             {
-                                // Start dragging all selected elements
-                                action_mgr.drag.is_dragging = true;
-                                action_mgr.drag.start_world_pos = world_pos;
+                                if (shift_held) {
+                                    // Shift+click within selection: toggle the clicked element
+                                    if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
+                                        _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{
+                                            .element_id = hit_id,
+                                            .toggle = true,
+                                        } }, &cam);
+                                    }
+                                    handle_clicked = true;
+                                } else {
+                                    // Normal click: start dragging all selected elements
+                                    action_mgr.drag.is_dragging = true;
+                                    action_mgr.drag.start_world_pos = world_pos;
 
-                                // Store all element start positions
-                                action_mgr.drag.element_count = 0;
-                                for (selected_ids_for_handles) |sel_id| {
-                                    if (scene_graph.findElement(sel_id)) |elem| {
-                                        if (action_mgr.drag.element_count < action_handler.MAX_DRAG_ELEMENTS) {
-                                            var state = &action_mgr.drag.element_states[action_mgr.drag.element_count];
-                                            state.element_id = sel_id;
-                                            state.start_pos = elem.transform.position;
-                                            state.start_bbox_x = elem.bounding_box.x;
-                                            state.start_bbox_y = elem.bounding_box.y;
-                                            action_mgr.drag.element_count += 1;
+                                    // Store all element start positions
+                                    action_mgr.drag.element_count = 0;
+                                    for (selected_ids_for_handles) |sel_id| {
+                                        if (scene_graph.findElement(sel_id)) |elem| {
+                                            if (action_mgr.drag.element_count < action_handler.MAX_DRAG_ELEMENTS) {
+                                                var state = &action_mgr.drag.element_states[action_mgr.drag.element_count];
+                                                state.element_id = sel_id;
+                                                state.start_pos = elem.transform.position;
+                                                state.start_bbox_x = elem.bounding_box.x;
+                                                state.start_bbox_y = elem.bounding_box.y;
+                                                action_mgr.drag.element_count += 1;
+                                            }
                                         }
                                     }
-                                }
 
-                                handle_clicked = true;
+                                    handle_clicked = true;
+                                }
                             }
                         }
                     }
