@@ -42,9 +42,8 @@ pub const InputState = struct {
                 if (event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE) {
                     if (is_editing) {
                         return ActionParams{ .end_text_edit = {} };
-                    } else {
-                        return ActionParams{ .quit = {} };
                     }
+                    // Escape no longer quits the app - use window close button instead
                 }
 
                 // Only handle these keys when not editing

@@ -223,122 +223,141 @@ pub fn main() !void {
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
                 if (action_mgr.current_tool == .selection) {
-                    // Check for handle click first (if element is selected)
+                    // Check for shift modifier
+                    const mod_state = c.SDL_GetModState();
+                    const shift_held = (mod_state & c.KMOD_SHIFT) != 0;
+
+                    // Check for handle click on union bounding box (works for single or multi-select)
                     var handle_clicked = false;
-                    if (action_mgr.selected_element_id) |sel_id| {
-                        if (scene_graph.findElement(sel_id)) |elem| {
-                            // Calculate handle positions from AUTHORITATIVE bbox
-                            const world_bbox = elem.bounding_box;
-                            const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
-                            const screen_pos = cam.worldToScreen(world_top_left);
+                    const selected_ids_for_handles = action_mgr.getSelectedIds();
 
-                            // Screen dimensions from authoritative bbox (no font measurement!)
-                            const screen_w = world_bbox.w * cam.zoom;
-                            const screen_h = world_bbox.h * cam.zoom;
+                    if (selected_ids_for_handles.len > 0) {
+                        // Calculate union bounding box of all selected elements
+                        var union_min_x: f32 = std.math.floatMax(f32);
+                        var union_min_y: f32 = std.math.floatMax(f32);
+                        var union_max_x: f32 = -std.math.floatMax(f32);
+                        var union_max_y: f32 = -std.math.floatMax(f32);
 
-                            const handle_hit_size: f32 = 12.0; // Slightly larger for easier clicking
+                        for (selected_ids_for_handles) |sel_id| {
+                            if (scene_graph.findElement(sel_id)) |elem| {
+                                const bbox = elem.bounding_box;
+                                union_min_x = @min(union_min_x, bbox.x);
+                                union_min_y = @min(union_min_y, bbox.y);
+                                union_max_x = @max(union_max_x, bbox.x + bbox.w);
+                                union_max_y = @max(union_max_y, bbox.y + bbox.h);
+                            }
+                        }
 
-                            // Helper to check if point is in handle
-                            const isInHandle = struct {
-                                fn check(px: f32, py: f32, hx: f32, hy: f32, size: f32) bool {
-                                    const half = size / 2.0;
-                                    return px >= hx - half and px <= hx + half and
-                                           py >= hy - half and py <= hy + half;
-                                }
-                            }.check;
+                        // Convert union bounds to screen space
+                        const union_world_top_left = Vec2{ .x = union_min_x, .y = union_max_y };
+                        const screen_pos = cam.worldToScreen(union_world_top_left);
+                        const screen_w = (union_max_x - union_min_x) * cam.zoom;
+                        const screen_h = (union_max_y - union_min_y) * cam.zoom;
 
-                            // Test each corner handle
-                            if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y, handle_hit_size)) {
-                                // Top-left handle
-                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
-                                    .screen_x = click_x,
-                                    .screen_y = click_y,
-                                    .handle = .top_left,
-                                } }, &cam);
-                                handle_clicked = true;
-                            } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y, handle_hit_size)) {
-                                // Top-right handle
-                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
-                                    .screen_x = click_x,
-                                    .screen_y = click_y,
-                                    .handle = .top_right,
-                                } }, &cam);
-                                handle_clicked = true;
-                            } else if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y + screen_h, handle_hit_size)) {
-                                // Bottom-left handle
-                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
-                                    .screen_x = click_x,
-                                    .screen_y = click_y,
-                                    .handle = .bottom_left,
-                                } }, &cam);
-                                handle_clicked = true;
-                            } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y + screen_h, handle_hit_size)) {
-                                // Bottom-right handle
-                                _ = action_mgr.handle(action.ActionParams{ .begin_resize_element = action.ResizeParams{
-                                    .screen_x = click_x,
-                                    .screen_y = click_y,
-                                    .handle = .bottom_right,
-                                } }, &cam);
-                                handle_clicked = true;
-                            } else {
-                                // Not on handle, check if on selected element itself (for dragging)
-                                const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
-                                if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
-                                    // Start dragging the element
-                                    _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
-                                        .screen_x = click_x,
-                                        .screen_y = click_y,
-                                    } }, &cam);
-                                    // Store element's current position
-                                    action_mgr.drag.element_start_pos = elem.transform.position;
-                                    handle_clicked = true;
+                        const handle_hit_size: f32 = 12.0;
+
+                        // Helper to check if point is in handle
+                        const isInHandle = struct {
+                            fn check(px: f32, py: f32, hx: f32, hy: f32, size: f32) bool {
+                                const half = size / 2.0;
+                                return px >= hx - half and px <= hx + half and
+                                    py >= hy - half and py <= hy + half;
+                            }
+                        }.check;
+
+                        // Test each corner handle
+                        var clicked_handle: ?action.ResizeHandle = null;
+                        if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y, handle_hit_size)) {
+                            clicked_handle = .top_left;
+                        } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y, handle_hit_size)) {
+                            clicked_handle = .top_right;
+                        } else if (isInHandle(click_x, click_y, screen_pos.x, screen_pos.y + screen_h, handle_hit_size)) {
+                            clicked_handle = .bottom_left;
+                        } else if (isInHandle(click_x, click_y, screen_pos.x + screen_w, screen_pos.y + screen_h, handle_hit_size)) {
+                            clicked_handle = .bottom_right;
+                        }
+
+                        if (clicked_handle) |resize_handle| {
+                            // Start resize operation
+                            action_mgr.resize.is_resizing = true;
+                            action_mgr.resize.handle = resize_handle;
+                            action_mgr.resize.start_world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                            action_mgr.resize.last_scale_factor = 1.0;
+
+                            // Store union bounding box
+                            action_mgr.resize.union_start_min_x = union_min_x;
+                            action_mgr.resize.union_start_min_y = union_min_y;
+                            action_mgr.resize.union_start_max_x = union_max_x;
+                            action_mgr.resize.union_start_max_y = union_max_y;
+
+                            // Calculate opposite corner of union bbox
+                            switch (resize_handle) {
+                                .top_left => {
+                                    action_mgr.resize.opposite_corner = Vec2{ .x = union_max_x, .y = union_min_y };
+                                },
+                                .top_right => {
+                                    action_mgr.resize.opposite_corner = Vec2{ .x = union_min_x, .y = union_min_y };
+                                },
+                                .bottom_left => {
+                                    action_mgr.resize.opposite_corner = Vec2{ .x = union_max_x, .y = union_max_y };
+                                },
+                                .bottom_right => {
+                                    action_mgr.resize.opposite_corner = Vec2{ .x = union_min_x, .y = union_max_y };
+                                },
+                            }
+
+                            // Store per-element start states
+                            action_mgr.resize.element_count = 0;
+                            for (selected_ids_for_handles) |sel_id| {
+                                if (scene_graph.findElement(sel_id)) |elem| {
+                                    if (action_mgr.resize.element_count < action_handler.MAX_RESIZE_ELEMENTS) {
+                                        var state = &action_mgr.resize.element_states[action_mgr.resize.element_count];
+                                        state.element_id = sel_id;
+                                        state.start_pos = elem.transform.position;
+                                        state.start_bbox_x = elem.bounding_box.x;
+                                        state.start_bbox_y = elem.bounding_box.y;
+                                        state.start_bbox_w = elem.bounding_box.w;
+                                        state.start_bbox_h = elem.bounding_box.h;
+                                        if (elem.element_type == .text_label) {
+                                            state.start_font_size = elem.data.text_label.font_size;
+                                        } else {
+                                            state.start_font_size = 16.0;
+                                        }
+                                        action_mgr.resize.element_count += 1;
+                                    }
                                 }
                             }
 
-                            // Store element state for resize
-                            if (action_mgr.resize.is_resizing) {
-                                action_mgr.resize.element_start_pos = elem.transform.position;
-                                action_mgr.resize.element_start_scale = elem.transform.scale;
-                                action_mgr.resize.last_scale_factor = 1.0; // Reset scale tracking
-
-                                if (elem.element_type == .text_label) {
-                                    action_mgr.resize.element_start_font_size = elem.data.text_label.font_size;
+                            // Legacy single-element fields for compatibility
+                            if (selected_ids_for_handles.len == 1) {
+                                if (scene_graph.findElement(selected_ids_for_handles[0])) |elem| {
+                                    action_mgr.resize.element_id = selected_ids_for_handles[0];
+                                    action_mgr.resize.element_start_pos = elem.transform.position;
+                                    action_mgr.resize.element_start_scale = elem.transform.scale;
+                                    action_mgr.resize.start_bbox_width = elem.bounding_box.w;
+                                    action_mgr.resize.start_bbox_height = elem.bounding_box.h;
+                                    if (elem.element_type == .text_label) {
+                                        action_mgr.resize.element_start_font_size = elem.data.text_label.font_size;
+                                    }
                                 }
+                            }
 
-                                // Store AUTHORITATIVE bbox dimensions
-                                action_mgr.resize.start_bbox_width = world_bbox.w;
-                                action_mgr.resize.start_bbox_height = world_bbox.h;
-
-                                // Calculate opposite corner directly in world space from bbox
-                                switch (action_mgr.resize.handle) {
-                                    .top_left => {
-                                        // Opposite is bottom-right
-                                        action_mgr.resize.opposite_corner = Vec2{
-                                            .x = world_bbox.x + world_bbox.w,
-                                            .y = world_bbox.y,
-                                        };
-                                    },
-                                    .top_right => {
-                                        // Opposite is bottom-left
-                                        action_mgr.resize.opposite_corner = Vec2{
-                                            .x = world_bbox.x,
-                                            .y = world_bbox.y,
-                                        };
-                                    },
-                                    .bottom_left => {
-                                        // Opposite is top-right
-                                        action_mgr.resize.opposite_corner = Vec2{
-                                            .x = world_bbox.x + world_bbox.w,
-                                            .y = world_bbox.y + world_bbox.h,
-                                        };
-                                    },
-                                    .bottom_right => {
-                                        // Opposite is top-left
-                                        action_mgr.resize.opposite_corner = Vec2{
-                                            .x = world_bbox.x,
-                                            .y = world_bbox.y + world_bbox.h,
-                                        };
-                                    },
+                            handle_clicked = true;
+                        } else {
+                            // Not on handle, check if clicking within any selected element (for dragging)
+                            const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                            for (selected_ids_for_handles) |sel_id| {
+                                if (scene_graph.findElement(sel_id)) |elem| {
+                                    if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                                        // Start dragging
+                                        _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
+                                            .screen_x = click_x,
+                                            .screen_y = click_y,
+                                        } }, &cam);
+                                        action_mgr.drag.element_start_pos = elem.transform.position;
+                                        handle_clicked = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -347,22 +366,29 @@ pub fn main() !void {
                     // If no handle was clicked, do normal hit test
                     if (!handle_clicked) {
                         if (scene_graph.hitTest(click_x, click_y, &cam)) |hit_id| {
-                            // Element was clicked - select it and start dragging immediately
-                            _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{ .element_id = hit_id } }, &cam);
-
-                            // Also start dragging so user can immediately drag after clicking
-                            _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
-                                .screen_x = click_x,
-                                .screen_y = click_y,
+                            // Element was clicked - select it (with toggle if shift held)
+                            _ = action_mgr.handle(action.ActionParams{ .select_element = action.SelectParams{
+                                .element_id = hit_id,
+                                .toggle = shift_held,
                             } }, &cam);
 
-                            // Store element's current position for dragging
-                            if (scene_graph.findElement(hit_id)) |elem| {
-                                action_mgr.drag.element_start_pos = elem.transform.position;
+                            // Only start dragging if not shift+clicking (shift is for selection only)
+                            if (!shift_held) {
+                                _ = action_mgr.handle(action.ActionParams{ .begin_drag_element = action.DragParams{
+                                    .screen_x = click_x,
+                                    .screen_y = click_y,
+                                } }, &cam);
+
+                                // Store element's current position for dragging
+                                if (scene_graph.findElement(hit_id)) |elem| {
+                                    action_mgr.drag.element_start_pos = elem.transform.position;
+                                }
                             }
                         } else {
-                            // Empty space clicked - deselect all
-                            _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                            // Empty space clicked - deselect all (unless shift held)
+                            if (!shift_held) {
+                                _ = action_mgr.handle(action.ActionParams{ .deselect_all = {} }, &cam);
+                            }
                         }
                     }
                 }
@@ -390,79 +416,74 @@ pub fn main() !void {
                         elem.bounding_box.y = elem.transform.position.y - elem.bounding_box.h;
                     }
                 } else if (action_mgr.resize.is_resizing) {
-                    // Resize with AUTHORITATIVE bbox - texture scales to fit!
-                    if (scene_graph.findElement(action_mgr.resize.element_id)) |elem| {
-                        // 1. Handle position = cursor (world space)
-                        const handle_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    // Multi-select resize with opposite corner as anchor
+                    const handle_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
 
-                        // 2. Calculate new bbox dimensions from handle to opposite corner
-                        const new_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
-                        const new_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
+                    // Calculate new union bbox dimensions from handle to opposite corner
+                    const orig_union_w = action_mgr.resize.union_start_max_x - action_mgr.resize.union_start_min_x;
+                    const orig_union_h = action_mgr.resize.union_start_max_y - action_mgr.resize.union_start_min_y;
 
-                        // 3. Calculate scale factor to maintain aspect ratio
-                        const width_scale = new_width / action_mgr.resize.start_bbox_width;
-                        const height_scale = new_height / action_mgr.resize.start_bbox_height;
-                        var scale_factor = @max(width_scale, height_scale);
+                    const new_width = @abs(handle_world.x - action_mgr.resize.opposite_corner.x);
+                    const new_height = @abs(handle_world.y - action_mgr.resize.opposite_corner.y);
 
-                        // Clamp scale to reasonable range
-                        scale_factor = @max(0.1, @min(10.0, scale_factor));
+                    // Calculate scale factor to maintain aspect ratio
+                    const width_scale = if (orig_union_w > 0.001) new_width / orig_union_w else 1.0;
+                    const height_scale = if (orig_union_h > 0.001) new_height / orig_union_h else 1.0;
+                    var scale_factor = @max(width_scale, height_scale);
 
-                        // Add hysteresis to prevent oscillation
-                        const scale_change = @abs(scale_factor - action_mgr.resize.last_scale_factor);
-                        const min_scale_change = 0.005 * action_mgr.resize.last_scale_factor;
-                        if (scale_change < min_scale_change) {
-                            scale_factor = action_mgr.resize.last_scale_factor;
-                        } else {
-                            action_mgr.resize.last_scale_factor = scale_factor;
-                        }
+                    // Clamp scale to reasonable range
+                    scale_factor = @max(0.1, @min(10.0, scale_factor));
 
-                        // 4. Update AUTHORITATIVE bbox dimensions (texture will scale to fit!)
-                        const bbox_width = action_mgr.resize.start_bbox_width * scale_factor;
-                        const bbox_height = action_mgr.resize.start_bbox_height * scale_factor;
+                    // Add hysteresis to prevent oscillation
+                    const scale_change = @abs(scale_factor - action_mgr.resize.last_scale_factor);
+                    const min_scale_change = 0.005 * action_mgr.resize.last_scale_factor;
+                    if (scale_change < min_scale_change) {
+                        scale_factor = action_mgr.resize.last_scale_factor;
+                    } else {
+                        action_mgr.resize.last_scale_factor = scale_factor;
+                    }
 
-                        // 5. Position element to keep opposite corner fixed
-                        switch (action_mgr.resize.handle) {
-                            .top_left => {
-                                elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - bbox_width,
-                                    .y = action_mgr.resize.opposite_corner.y + bbox_height,
-                                };
-                            },
-                            .top_right => {
-                                elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x,
-                                    .y = action_mgr.resize.opposite_corner.y + bbox_height,
-                                };
-                            },
-                            .bottom_left => {
-                                elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x - bbox_width,
-                                    .y = action_mgr.resize.opposite_corner.y,
-                                };
-                            },
-                            .bottom_right => {
-                                elem.transform.position = Vec2{
-                                    .x = action_mgr.resize.opposite_corner.x,
-                                    .y = action_mgr.resize.opposite_corner.y,
-                                };
-                            },
-                        }
+                    // Apply resize to all elements in the selection
+                    for (action_mgr.resize.element_states[0..action_mgr.resize.element_count]) |elem_state| {
+                        if (scene_graph.findElement(elem_state.element_id)) |elem| {
+                            // Scale element's bbox dimensions
+                            const new_bbox_w = elem_state.start_bbox_w * scale_factor;
+                            const new_bbox_h = elem_state.start_bbox_h * scale_factor;
 
-                        // 6. Update bbox to new dimensions and position
-                        elem.bounding_box.x = elem.transform.position.x;
-                        elem.bounding_box.y = elem.transform.position.y - bbox_height;
-                        elem.bounding_box.w = bbox_width;
-                        elem.bounding_box.h = bbox_height;
+                            // Calculate element's position relative to opposite corner at start
+                            // bbox.x is left edge, bbox.y is bottom edge (world Y-up)
+                            const start_left_offset = elem_state.start_bbox_x - action_mgr.resize.opposite_corner.x;
+                            const start_bottom_offset = elem_state.start_bbox_y - action_mgr.resize.opposite_corner.y;
 
-                        // 7. Update scale/size for proper re-rendering
-                        if (elem.element_type == .rectangle) {
-                            elem.transform.scale = Vec2{
-                                .x = action_mgr.resize.element_start_scale.x * scale_factor,
-                                .y = action_mgr.resize.element_start_scale.y * scale_factor,
+                            // Scale the offsets
+                            const new_left_offset = start_left_offset * scale_factor;
+                            const new_bottom_offset = start_bottom_offset * scale_factor;
+
+                            // Calculate new bbox position
+                            const new_bbox_x = action_mgr.resize.opposite_corner.x + new_left_offset;
+                            const new_bbox_y = action_mgr.resize.opposite_corner.y + new_bottom_offset;
+
+                            // Update bbox
+                            elem.bounding_box.x = new_bbox_x;
+                            elem.bounding_box.y = new_bbox_y;
+                            elem.bounding_box.w = new_bbox_w;
+                            elem.bounding_box.h = new_bbox_h;
+
+                            // Update transform position (top-left in world Y-up = x, y + h)
+                            elem.transform.position = Vec2{
+                                .x = new_bbox_x,
+                                .y = new_bbox_y + new_bbox_h,
                             };
-                        } else if (elem.element_type == .text_label) {
-                            // Update font_size so cache knows to re-render at new size
-                            elem.data.text_label.font_size = action_mgr.resize.element_start_font_size * scale_factor;
+
+                            // Update scale/font_size for proper re-rendering
+                            if (elem.element_type == .rectangle) {
+                                elem.transform.scale = Vec2{
+                                    .x = scale_factor,
+                                    .y = scale_factor,
+                                };
+                            } else if (elem.element_type == .text_label) {
+                                elem.data.text_label.font_size = elem_state.start_font_size * scale_factor;
+                            }
                         }
                     }
                 }
@@ -628,73 +649,138 @@ pub fn main() !void {
             }
         }
 
-        // Render selection bounding box if an element is selected
-        if (action_mgr.selected_element_id) |sel_id| {
-            if (scene_graph.findElement(sel_id)) |elem| {
-                // Convert world-space bounding box to screen coordinates
-                // In world space (Y-up): bbox.y is bottom, bbox.y + bbox.h is top
-                // For SDL rendering (Y-down): we need the top-left corner
-                const world_bbox = elem.bounding_box;
-                const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
-                const screen_pos = cam.worldToScreen(world_top_left);
+        // Render selection bounding boxes for all selected elements
+        const selected_ids = action_mgr.getSelectedIds();
+        const selection_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Blue
+        const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
-                // Calculate screen dimensions from AUTHORITATIVE bbox
-                const screen_w = world_bbox.w * cam.zoom;
-                const screen_h = world_bbox.h * cam.zoom;
+        if (selected_ids.len > 0) {
+            // Calculate union bounding box in world space (Y-up coordinate system)
+            var union_min_x: f32 = std.math.floatMax(f32);
+            var union_min_y: f32 = std.math.floatMax(f32); // bottom in world space
+            var union_max_x: f32 = -std.math.floatMax(f32);
+            var union_max_y: f32 = -std.math.floatMax(f32); // top in world space
 
-                const selection_color = c.SDL_Color{ .r = 100, .g = 150, .b = 255, .a = 255 }; // Blue
-                const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+            // First pass: calculate union and draw individual solid boxes
+            for (selected_ids) |sel_id| {
+                if (scene_graph.findElement(sel_id)) |elem| {
+                    const world_bbox = elem.bounding_box;
 
-                const x: i32 = @intFromFloat(screen_pos.x);
-                const y: i32 = @intFromFloat(screen_pos.y);
-                const w: i32 = @intFromFloat(screen_w);
-                const h: i32 = @intFromFloat(screen_h);
+                    // Update union bounds (world space: y is bottom, y+h is top)
+                    union_min_x = @min(union_min_x, world_bbox.x);
+                    union_min_y = @min(union_min_y, world_bbox.y);
+                    union_max_x = @max(union_max_x, world_bbox.x + world_bbox.w);
+                    union_max_y = @max(union_max_y, world_bbox.y + world_bbox.h);
 
-                // Draw selection box with 1px stroke
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
-                _ = c.SDL_RenderDrawRect(renderer, &rect);
+                    // Draw solid selection box around each element
+                    const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
+                    const screen_pos = cam.worldToScreen(world_top_left);
+                    const screen_w = world_bbox.w * cam.zoom;
+                    const screen_h = world_bbox.h * cam.zoom;
 
-                // Draw resize handles (4 corners) - white fill with blue stroke
-                const handle_size: i32 = 8;
-                const handle_half: i32 = handle_size / 2;
+                    const x: i32 = @intFromFloat(screen_pos.x);
+                    const y: i32 = @intFromFloat(screen_pos.y);
+                    const w: i32 = @intFromFloat(screen_w);
+                    const h: i32 = @intFromFloat(screen_h);
 
-                // Top-left handle
-                var handle = c.SDL_Rect{
-                    .x = x - handle_half,
-                    .y = y - handle_half,
-                    .w = handle_size,
-                    .h = handle_size,
-                };
-                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                _ = c.SDL_RenderFillRect(renderer, &handle);
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                _ = c.SDL_RenderDrawRect(renderer, &handle);
-
-                // Top-right handle
-                handle.x = x + w - handle_half;
-                handle.y = y - handle_half;
-                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                _ = c.SDL_RenderFillRect(renderer, &handle);
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                _ = c.SDL_RenderDrawRect(renderer, &handle);
-
-                // Bottom-left handle
-                handle.x = x - handle_half;
-                handle.y = y + h - handle_half;
-                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                _ = c.SDL_RenderFillRect(renderer, &handle);
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                _ = c.SDL_RenderDrawRect(renderer, &handle);
-
-                // Bottom-right handle
-                handle.x = x + w - handle_half;
-                handle.y = y + h - handle_half;
-                _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                _ = c.SDL_RenderFillRect(renderer, &handle);
-                _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                _ = c.SDL_RenderDrawRect(renderer, &handle);
+                    _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                    var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
+                    _ = c.SDL_RenderDrawRect(renderer, &rect);
+                }
             }
+
+            // Convert union bounds to screen space
+            const union_world_top_left = Vec2{ .x = union_min_x, .y = union_max_y };
+            const union_screen_pos = cam.worldToScreen(union_world_top_left);
+            const union_screen_w = (union_max_x - union_min_x) * cam.zoom;
+            const union_screen_h = (union_max_y - union_min_y) * cam.zoom;
+
+            const ux: i32 = @intFromFloat(union_screen_pos.x);
+            const uy: i32 = @intFromFloat(union_screen_pos.y);
+            const uw: i32 = @intFromFloat(union_screen_w);
+            const uh: i32 = @intFromFloat(union_screen_h);
+
+            // Draw dotted rectangle around union bounds (for multi-select) or solid (for single)
+            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+
+            if (selected_ids.len > 1) {
+                // Draw dotted lines for multi-select union box
+                const dash_len: i32 = 6;
+                const gap_len: i32 = 4;
+
+                // Helper to draw dashed horizontal line
+                const drawDashedHLine = struct {
+                    fn draw(rend: *c.SDL_Renderer, x1: i32, x2: i32, y_pos: i32, dash: i32, gap: i32) void {
+                        var cx = x1;
+                        while (cx < x2) {
+                            const end_x = @min(cx + dash, x2);
+                            _ = c.SDL_RenderDrawLine(rend, cx, y_pos, end_x, y_pos);
+                            cx += dash + gap;
+                        }
+                    }
+                }.draw;
+
+                // Helper to draw dashed vertical line
+                const drawDashedVLine = struct {
+                    fn draw(rend: *c.SDL_Renderer, x_pos: i32, y1: i32, y2: i32, dash: i32, gap: i32) void {
+                        var cy = y1;
+                        while (cy < y2) {
+                            const end_y = @min(cy + dash, y2);
+                            _ = c.SDL_RenderDrawLine(rend, x_pos, cy, x_pos, end_y);
+                            cy += dash + gap;
+                        }
+                    }
+                }.draw;
+
+                // Top edge
+                drawDashedHLine(renderer, ux, ux + uw - 1, uy, dash_len, gap_len);
+                // Bottom edge (SDL_RenderDrawRect draws bottom at y+h-1, not y+h)
+                drawDashedHLine(renderer, ux, ux + uw - 1, uy + uh - 1, dash_len, gap_len);
+                // Left edge
+                drawDashedVLine(renderer, ux, uy, uy + uh - 1, dash_len, gap_len);
+                // Right edge (SDL_RenderDrawRect draws right at x+w-1, not x+w)
+                drawDashedVLine(renderer, ux + uw - 1, uy, uy + uh - 1, dash_len, gap_len);
+            }
+
+            // Draw resize handles on the union bounding box
+            const handle_size: i32 = 8;
+            const handle_half: i32 = handle_size / 2;
+
+            // Top-left handle
+            var handle = c.SDL_Rect{
+                .x = ux - handle_half,
+                .y = uy - handle_half,
+                .w = handle_size,
+                .h = handle_size,
+            };
+            _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+            _ = c.SDL_RenderFillRect(renderer, &handle);
+            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+            _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+            // Top-right handle
+            handle.x = ux + uw - handle_half;
+            handle.y = uy - handle_half;
+            _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+            _ = c.SDL_RenderFillRect(renderer, &handle);
+            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+            _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+            // Bottom-left handle
+            handle.x = ux - handle_half;
+            handle.y = uy + uh - handle_half;
+            _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+            _ = c.SDL_RenderFillRect(renderer, &handle);
+            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+            _ = c.SDL_RenderDrawRect(renderer, &handle);
+
+            // Bottom-right handle
+            handle.x = ux + uw - handle_half;
+            handle.y = uy + uh - handle_half;
+            _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+            _ = c.SDL_RenderFillRect(renderer, &handle);
+            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+            _ = c.SDL_RenderDrawRect(renderer, &handle);
         }
 
         // Render text editing cursor if in edit mode

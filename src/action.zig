@@ -66,6 +66,8 @@ pub const TextEditParams = struct {
 pub const SelectParams = struct {
     /// Element ID to select
     element_id: u32,
+    /// If true, toggle selection (shift+click behavior)
+    toggle: bool = false,
 };
 
 pub const DragParams = struct {
