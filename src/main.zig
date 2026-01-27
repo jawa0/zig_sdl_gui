@@ -655,22 +655,17 @@ pub fn main() !void {
         const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
         if (selected_ids.len > 0) {
-            // Calculate union bounding box in world space (Y-up coordinate system)
-            var union_min_x: f32 = std.math.floatMax(f32);
-            var union_min_y: f32 = std.math.floatMax(f32); // bottom in world space
-            var union_max_x: f32 = -std.math.floatMax(f32);
-            var union_max_y: f32 = -std.math.floatMax(f32); // top in world space
+            // Calculate union bounding box in SCREEN space to avoid floating-point discrepancies
+            // This ensures the union edges exactly match individual element edges
+            var union_screen_min_x: i32 = std.math.maxInt(i32);
+            var union_screen_min_y: i32 = std.math.maxInt(i32);
+            var union_screen_max_x: i32 = std.math.minInt(i32);
+            var union_screen_max_y: i32 = std.math.minInt(i32);
 
-            // First pass: calculate union and draw individual solid boxes
+            // First pass: calculate union in screen space and draw individual solid boxes
             for (selected_ids) |sel_id| {
                 if (scene_graph.findElement(sel_id)) |elem| {
                     const world_bbox = elem.bounding_box;
-
-                    // Update union bounds (world space: y is bottom, y+h is top)
-                    union_min_x = @min(union_min_x, world_bbox.x);
-                    union_min_y = @min(union_min_y, world_bbox.y);
-                    union_max_x = @max(union_max_x, world_bbox.x + world_bbox.w);
-                    union_max_y = @max(union_max_y, world_bbox.y + world_bbox.h);
 
                     // Draw solid selection box around each element
                     const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
@@ -683,22 +678,23 @@ pub fn main() !void {
                     const w: i32 = @intFromFloat(screen_w);
                     const h: i32 = @intFromFloat(screen_h);
 
+                    // Update union bounds in screen space (using exact same integers as drawing)
+                    union_screen_min_x = @min(union_screen_min_x, x);
+                    union_screen_min_y = @min(union_screen_min_y, y);
+                    union_screen_max_x = @max(union_screen_max_x, x + w);
+                    union_screen_max_y = @max(union_screen_max_y, y + h);
+
                     _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
                     var rect = c.SDL_Rect{ .x = x, .y = y, .w = w, .h = h };
                     _ = c.SDL_RenderDrawRect(renderer, &rect);
                 }
             }
 
-            // Convert union bounds to screen space
-            const union_world_top_left = Vec2{ .x = union_min_x, .y = union_max_y };
-            const union_screen_pos = cam.worldToScreen(union_world_top_left);
-            const union_screen_w = (union_max_x - union_min_x) * cam.zoom;
-            const union_screen_h = (union_max_y - union_min_y) * cam.zoom;
-
-            const ux: i32 = @intFromFloat(union_screen_pos.x);
-            const uy: i32 = @intFromFloat(union_screen_pos.y);
-            const uw: i32 = @intFromFloat(union_screen_w);
-            const uh: i32 = @intFromFloat(union_screen_h);
+            // Union screen rectangle
+            const ux = union_screen_min_x;
+            const uy = union_screen_min_y;
+            const uw = union_screen_max_x - union_screen_min_x;
+            const uh = union_screen_max_y - union_screen_min_y;
 
             // Draw dotted rectangle around union bounds (for multi-select) or solid (for single)
             _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
