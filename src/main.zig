@@ -167,6 +167,13 @@ pub fn main() !void {
     };
     defer c.TTF_CloseFont(font);
 
+    // Create system cursors for hover feedback
+    const cursor_arrow = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_ARROW);
+    defer if (cursor_arrow != null) c.SDL_FreeCursor(cursor_arrow);
+    const cursor_move = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_SIZEALL);
+    defer if (cursor_move != null) c.SDL_FreeCursor(cursor_move);
+    var current_cursor: enum { arrow, move } = .arrow;
+
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
         Vec2{ .x = 0, .y = 0 },
@@ -660,6 +667,57 @@ pub fn main() !void {
                         } else {
                             action_mgr.selection.remove(elem.id);
                         }
+                    }
+                } else {
+                    // Update cursor based on what's under the mouse
+                    const world_pos = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    var should_show_move_cursor = false;
+
+                    // Check if hovering over any world-space element's bounding box
+                    for (scene_graph.elements.items) |*elem| {
+                        if (!elem.visible) continue;
+                        if (elem.space != .world) continue;
+
+                        if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                            should_show_move_cursor = true;
+                            break;
+                        }
+                    }
+
+                    // Also check if hovering over the selection's union bounding box
+                    if (!should_show_move_cursor) {
+                        const selected_ids = action_mgr.selection.items();
+                        if (selected_ids.len > 0) {
+                            var union_min_x: f32 = std.math.floatMax(f32);
+                            var union_min_y: f32 = std.math.floatMax(f32);
+                            var union_max_x: f32 = -std.math.floatMax(f32);
+                            var union_max_y: f32 = -std.math.floatMax(f32);
+
+                            for (selected_ids) |sel_id| {
+                                if (scene_graph.findElement(sel_id)) |elem| {
+                                    const bbox = elem.bounding_box;
+                                    union_min_x = @min(union_min_x, bbox.x);
+                                    union_min_y = @min(union_min_y, bbox.y);
+                                    union_max_x = @max(union_max_x, bbox.x + bbox.w);
+                                    union_max_y = @max(union_max_y, bbox.y + bbox.h);
+                                }
+                            }
+
+                            if (world_pos.x >= union_min_x and world_pos.x <= union_max_x and
+                                world_pos.y >= union_min_y and world_pos.y <= union_max_y)
+                            {
+                                should_show_move_cursor = true;
+                            }
+                        }
+                    }
+
+                    // Update cursor if needed
+                    if (should_show_move_cursor and current_cursor != .move) {
+                        if (cursor_move != null) c.SDL_SetCursor(cursor_move);
+                        current_cursor = .move;
+                    } else if (!should_show_move_cursor and current_cursor != .arrow) {
+                        if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                        current_cursor = .arrow;
                     }
                 }
             }
