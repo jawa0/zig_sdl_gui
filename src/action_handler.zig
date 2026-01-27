@@ -100,6 +100,9 @@ pub const TextEditState = struct {
     world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
     buffer: TextBuffer = TextBuffer.init(),
 
+    /// Timestamp when cursor last moved (for blink cycle reset)
+    cursor_blink_start: u32 = 0,
+
     /// Element ID being edited (null if creating new text)
     editing_element_id: ?u32 = null,
 
