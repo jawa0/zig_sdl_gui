@@ -172,7 +172,11 @@ pub fn main() !void {
     defer if (cursor_arrow != null) c.SDL_FreeCursor(cursor_arrow);
     const cursor_move = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_SIZEALL);
     defer if (cursor_move != null) c.SDL_FreeCursor(cursor_move);
-    var current_cursor: enum { arrow, move } = .arrow;
+    const cursor_nwse = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_SIZENWSE); // top-left / bottom-right
+    defer if (cursor_nwse != null) c.SDL_FreeCursor(cursor_nwse);
+    const cursor_nesw = c.SDL_CreateSystemCursor(c.SDL_SYSTEM_CURSOR_SIZENESW); // top-right / bottom-left
+    defer if (cursor_nesw != null) c.SDL_FreeCursor(cursor_nesw);
+    var current_cursor: enum { arrow, move, nwse, nesw } = .arrow;
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -551,6 +555,20 @@ pub fn main() !void {
                         }
                     }
                 } else if (action_mgr.resize.is_resizing) {
+                    // Set appropriate cursor for the resize handle being dragged
+                    const resize_cursor: @TypeOf(current_cursor) = switch (action_mgr.resize.handle) {
+                        .top_left, .bottom_right => .nwse,
+                        .top_right, .bottom_left => .nesw,
+                    };
+                    if (resize_cursor != current_cursor) {
+                        switch (resize_cursor) {
+                            .nwse => if (cursor_nwse != null) c.SDL_SetCursor(cursor_nwse),
+                            .nesw => if (cursor_nesw != null) c.SDL_SetCursor(cursor_nesw),
+                            else => {},
+                        }
+                        current_cursor = resize_cursor;
+                    }
+
                     // Multi-select resize with opposite corner as anchor
                     const handle_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
 
@@ -671,53 +689,91 @@ pub fn main() !void {
                 } else {
                     // Update cursor based on what's under the mouse
                     const world_pos = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
-                    var should_show_move_cursor = false;
+                    var desired_cursor: @TypeOf(current_cursor) = .arrow;
 
-                    // Check if hovering over any world-space element's bounding box
-                    for (scene_graph.elements.items) |*elem| {
-                        if (!elem.visible) continue;
-                        if (elem.space != .world) continue;
+                    // First, check if hovering over resize handles (takes priority)
+                    const selected_ids = action_mgr.selection.items();
+                    if (selected_ids.len > 0) {
+                        // Calculate union bounding box
+                        var union_min_x: f32 = std.math.floatMax(f32);
+                        var union_min_y: f32 = std.math.floatMax(f32);
+                        var union_max_x: f32 = -std.math.floatMax(f32);
+                        var union_max_y: f32 = -std.math.floatMax(f32);
 
-                        if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
-                            should_show_move_cursor = true;
-                            break;
+                        for (selected_ids) |sel_id| {
+                            if (scene_graph.findElement(sel_id)) |elem| {
+                                const bbox = elem.bounding_box;
+                                union_min_x = @min(union_min_x, bbox.x);
+                                union_min_y = @min(union_min_y, bbox.y);
+                                union_max_x = @max(union_max_x, bbox.x + bbox.w);
+                                union_max_y = @max(union_max_y, bbox.y + bbox.h);
+                            }
+                        }
+
+                        // Convert union bounds to screen space for handle hit testing
+                        const union_world_top_left = Vec2{ .x = union_min_x, .y = union_max_y };
+                        const screen_pos = cam.worldToScreen(union_world_top_left);
+                        const screen_w = (union_max_x - union_min_x) * cam.zoom;
+                        const screen_h = (union_max_y - union_min_y) * cam.zoom;
+
+                        const handle_hit_size: f32 = 12.0;
+                        const half = handle_hit_size / 2.0;
+
+                        // Check each corner handle
+                        // Top-left handle (NWSE diagonal)
+                        if (mouse_x >= screen_pos.x - half and mouse_x <= screen_pos.x + half and
+                            mouse_y >= screen_pos.y - half and mouse_y <= screen_pos.y + half)
+                        {
+                            desired_cursor = .nwse;
+                        }
+                        // Top-right handle (NESW diagonal)
+                        else if (mouse_x >= screen_pos.x + screen_w - half and mouse_x <= screen_pos.x + screen_w + half and
+                            mouse_y >= screen_pos.y - half and mouse_y <= screen_pos.y + half)
+                        {
+                            desired_cursor = .nesw;
+                        }
+                        // Bottom-left handle (NESW diagonal)
+                        else if (mouse_x >= screen_pos.x - half and mouse_x <= screen_pos.x + half and
+                            mouse_y >= screen_pos.y + screen_h - half and mouse_y <= screen_pos.y + screen_h + half)
+                        {
+                            desired_cursor = .nesw;
+                        }
+                        // Bottom-right handle (NWSE diagonal)
+                        else if (mouse_x >= screen_pos.x + screen_w - half and mouse_x <= screen_pos.x + screen_w + half and
+                            mouse_y >= screen_pos.y + screen_h - half and mouse_y <= screen_pos.y + screen_h + half)
+                        {
+                            desired_cursor = .nwse;
+                        }
+                        // Check if inside union bbox (move cursor)
+                        else if (world_pos.x >= union_min_x and world_pos.x <= union_max_x and
+                            world_pos.y >= union_min_y and world_pos.y <= union_max_y)
+                        {
+                            desired_cursor = .move;
                         }
                     }
 
-                    // Also check if hovering over the selection's union bounding box
-                    if (!should_show_move_cursor) {
-                        const selected_ids = action_mgr.selection.items();
-                        if (selected_ids.len > 0) {
-                            var union_min_x: f32 = std.math.floatMax(f32);
-                            var union_min_y: f32 = std.math.floatMax(f32);
-                            var union_max_x: f32 = -std.math.floatMax(f32);
-                            var union_max_y: f32 = -std.math.floatMax(f32);
+                    // If not over selection, check if hovering over any element's bounding box
+                    if (desired_cursor == .arrow) {
+                        for (scene_graph.elements.items) |*elem| {
+                            if (!elem.visible) continue;
+                            if (elem.space != .world) continue;
 
-                            for (selected_ids) |sel_id| {
-                                if (scene_graph.findElement(sel_id)) |elem| {
-                                    const bbox = elem.bounding_box;
-                                    union_min_x = @min(union_min_x, bbox.x);
-                                    union_min_y = @min(union_min_y, bbox.y);
-                                    union_max_x = @max(union_max_x, bbox.x + bbox.w);
-                                    union_max_y = @max(union_max_y, bbox.y + bbox.h);
-                                }
-                            }
-
-                            if (world_pos.x >= union_min_x and world_pos.x <= union_max_x and
-                                world_pos.y >= union_min_y and world_pos.y <= union_max_y)
-                            {
-                                should_show_move_cursor = true;
+                            if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                                desired_cursor = .move;
+                                break;
                             }
                         }
                     }
 
                     // Update cursor if needed
-                    if (should_show_move_cursor and current_cursor != .move) {
-                        if (cursor_move != null) c.SDL_SetCursor(cursor_move);
-                        current_cursor = .move;
-                    } else if (!should_show_move_cursor and current_cursor != .arrow) {
-                        if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
-                        current_cursor = .arrow;
+                    if (desired_cursor != current_cursor) {
+                        switch (desired_cursor) {
+                            .arrow => if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow),
+                            .move => if (cursor_move != null) c.SDL_SetCursor(cursor_move),
+                            .nwse => if (cursor_nwse != null) c.SDL_SetCursor(cursor_nwse),
+                            .nesw => if (cursor_nesw != null) c.SDL_SetCursor(cursor_nesw),
+                        }
+                        current_cursor = desired_cursor;
                     }
                 }
             }
