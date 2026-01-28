@@ -465,8 +465,7 @@ pub fn main() !void {
                 // Skip if clicking toolbar buttons (handled above)
                 if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y) and !rectangle_button.contains(click_x, click_y)) {
                     // Check if click is within the text being edited
-                    const base_font_size: f32 = 16.0;
-                    const target_font_size = base_font_size * cam.zoom;
+                    const target_font_size = action_mgr.text_edit.font_size * cam.zoom;
                     const line_spacing = target_font_size * scene.LINE_SPACING_MULTIPLIER;
                     const font_size_int: c_int = @intFromFloat(target_font_size);
 
@@ -1227,7 +1226,7 @@ pub fn main() !void {
                                         _ = scene_graph.addTextLabel(
                                             text,
                                             action_mgr.text_edit.finished_world_pos,
-                                            16.0,
+                                            action_mgr.text_edit.font_size,
                                             colors.text,
                                             .world,
                                             font,
@@ -1242,7 +1241,7 @@ pub fn main() !void {
                                 _ = scene_graph.addTextLabel(
                                     text,
                                     action_mgr.text_edit.finished_world_pos,
-                                    16.0,
+                                    action_mgr.text_edit.font_size,
                                     colors.text,
                                     .world,
                                     font,
@@ -1259,7 +1258,7 @@ pub fn main() !void {
                                 if (elem.element_type == .text_label) {
                                     // Start editing this text element
                                     const text = elem.data.text_label.text;
-                                    action_mgr.text_edit.startEditingElement(elem_id, elem.transform.position, text);
+                                    action_mgr.text_edit.startEditingElement(elem_id, elem.transform.position, elem.data.text_label.font_size, text);
                                     action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                                     action_mgr.current_tool = .text_creation;
                                     // Clear selection - editing mode is separate from selection mode
@@ -1321,7 +1320,7 @@ pub fn main() !void {
             _ = try scene_graph.addTextLabel(
                 text,
                 action_mgr.text_edit.finished_world_pos,
-                16.0,
+                action_mgr.text_edit.font_size,
                 colors.text,
                 .world,
                 font,
@@ -1341,7 +1340,7 @@ pub fn main() !void {
                     _ = try scene_graph.addTextLabel(
                         text,
                         action_mgr.text_edit.finished_world_pos,
-                        16.0,
+                        action_mgr.text_edit.font_size,
                         colors.text,
                         .world,
                         font,
@@ -1631,9 +1630,8 @@ pub fn main() !void {
 
         // Render text editing cursor if in edit mode
         if (action_mgr.text_edit.is_editing) {
-            // Calculate the font size scaled by zoom (canonical size is 16pt at 100% zoom)
-            const base_font_size: f32 = 16.0;
-            const target_font_size = base_font_size * cam.zoom;
+            // Calculate the font size scaled by zoom
+            const target_font_size = action_mgr.text_edit.font_size * cam.zoom;
             const font_size_int: c_int = @intFromFloat(target_font_size);
 
             // Line spacing is slightly larger than font size for better readability

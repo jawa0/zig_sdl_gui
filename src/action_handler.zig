@@ -112,6 +112,7 @@ pub const BlinkAnimation = struct {
 pub const TextEditState = struct {
     is_editing: bool = false,
     world_pos: Vec2 = Vec2{ .x = 0, .y = 0 },
+    font_size: f32 = 16.0,
     buffer: TextBuffer = TextBuffer.init(),
 
     /// Cursor blink animation
@@ -133,15 +134,17 @@ pub const TextEditState = struct {
     pub fn startEditing(self: *TextEditState, pos: Vec2) void {
         self.is_editing = true;
         self.world_pos = pos;
+        self.font_size = 16.0;
         self.buffer.clear();
         self.editing_element_id = null;
     }
 
     /// Start editing an existing text element
     /// Selects all text so typing replaces it, or user can click to deselect
-    pub fn startEditingElement(self: *TextEditState, element_id: u32, pos: Vec2, existing_text: []const u8) void {
+    pub fn startEditingElement(self: *TextEditState, element_id: u32, pos: Vec2, font_size: f32, existing_text: []const u8) void {
         self.is_editing = true;
         self.world_pos = pos;
+        self.font_size = font_size;
         self.editing_element_id = element_id;
         self.buffer.clear();
         self.buffer.insert(existing_text);
