@@ -63,7 +63,7 @@ zig build -Doptimize=ReleaseFast
 
 - `build.zig` - Build configuration with cross-platform SDL2/SDL2_ttf linking (detects Windows, macOS, and Linux)
 - `src/main.zig` - Main entry point with SDL2 render loop and FPS display using `@cImport` for C interop
-- `src/tool.zig` - Tool system enum (Selection, TextCreation, TextPlacement, RectanglePlacement)
+- `src/tool.zig` - Tool system enum (Selection, TextCreation, TextPlacement, RectanglePlacement, ArrowPlacement)
 - `src/text_buffer.zig` - Reusable text buffer with cursor support (like Emacs buffers)
 - `src/button.zig` - Reusable UI button component with icon support
 - `src/grid.zig` - Grid rendering system with recursive subdivision and zoom-based fading
@@ -89,7 +89,8 @@ The application has four tools, accessible via the toolbar or keyboard:
 1. **Selection Tool** - Select, move, resize, and clone elements
 2. **Text Tool** - Click to place new text, enter text editing mode
 3. **Rectangle Tool** - Click and drag to create rectangles
-4. **Text Editing Mode** - Active when editing text (not a toolbar tool)
+4. **Arrow Tool** - Click and drag to create arrows (start to end with arrowhead)
+5. **Text Editing Mode** - Active when editing text (not a toolbar tool)
 
 ### Global Keybindings (All Platforms)
 
@@ -128,6 +129,13 @@ The application has four tools, accessible via the toolbar or keyboard:
 | Action | Input | Notes |
 |--------|-------|-------|
 | Create rectangle | Click + drag | Draws rectangle from corner to corner |
+| Cancel | Escape | Returns to Selection tool |
+
+### Arrow Tool
+
+| Action | Input | Notes |
+|--------|-------|-------|
+| Create arrow | Click + drag | Draws arrow from start to end with arrowhead |
 | Cancel | Escape | Returns to Selection tool |
 
 ### Text Editing Mode
@@ -193,8 +201,8 @@ The application has four tools, accessible via the toolbar or keyboard:
 ### Implementation Notes
 
 - Tool system:
-  - Four tools: Selection (default), TextCreation, TextPlacement, RectanglePlacement
-  - Toolbar with icon buttons for Selection, Text, and Rectangle tools
+  - Five tools: Selection (default), TextCreation, TextPlacement, RectanglePlacement, ArrowPlacement
+  - Toolbar with icon buttons for Selection, Text, Rectangle, and Arrow tools
   - Current tool tracked in ActionHandler (current_tool field)
   - Double-click on blank canvas or text element enters text editing
   - Escape returns to Selection tool from any other tool

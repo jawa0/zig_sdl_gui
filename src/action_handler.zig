@@ -293,6 +293,13 @@ pub const RectangleCreateState = struct {
     }
 };
 
+/// Arrow creation state (click and drag to create arrow)
+pub const ArrowCreateState = struct {
+    is_active: bool = false,
+    start_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+    current_world: Vec2 = Vec2{ .x = 0, .y = 0 },
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -308,6 +315,7 @@ pub const ActionHandler = struct {
     resize: ResizeState = ResizeState{},
     drag_select: DragSelectState = DragSelectState{},
     rect_create: RectangleCreateState = RectangleCreateState{},
+    arrow_create: ArrowCreateState = ArrowCreateState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};

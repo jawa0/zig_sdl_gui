@@ -6,4 +6,5 @@ pub const Tool = enum {
     text_creation,
     text_placement, // After clicking Text button, waiting for click to place text
     rectangle_placement, // After clicking Rectangle button, waiting for click to place rectangle
+    arrow_placement, // After clicking Arrow button, waiting for click+drag to draw arrow
 };

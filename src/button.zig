@@ -13,6 +13,7 @@ pub const IconType = enum {
     cursor_arrow, // Selection tool - arrow cursor
     text_t, // Text tool - "T" glyph
     rectangle, // Rectangle tool
+    arrow, // Arrow tool - diagonal arrow line
 };
 
 /// Icon texture cache - must be initialized before rendering buttons with icons
@@ -20,6 +21,7 @@ pub const IconCache = struct {
     cursor_arrow_texture: ?*c.SDL_Texture = null,
     text_t_texture: ?*c.SDL_Texture = null,
     rectangle_texture: ?*c.SDL_Texture = null,
+    arrow_texture: ?*c.SDL_Texture = null,
     renderer: ?*c.SDL_Renderer = null,
 
     pub fn init(renderer: *c.SDL_Renderer) IconCache {
@@ -57,6 +59,16 @@ pub const IconCache = struct {
             }
         }
 
+        // Load arrow icon
+        const arrow_surface = c.IMG_Load("assets/icons/arrow.png");
+        if (arrow_surface != null) {
+            defer c.SDL_FreeSurface(arrow_surface);
+            cache.arrow_texture = c.SDL_CreateTextureFromSurface(renderer, arrow_surface);
+            if (cache.arrow_texture != null) {
+                _ = c.SDL_SetTextureBlendMode(cache.arrow_texture, c.SDL_BLENDMODE_BLEND);
+            }
+        }
+
         return cache;
     }
 
@@ -72,6 +84,10 @@ pub const IconCache = struct {
         if (self.rectangle_texture != null) {
             c.SDL_DestroyTexture(self.rectangle_texture);
             self.rectangle_texture = null;
+        }
+        if (self.arrow_texture != null) {
+            c.SDL_DestroyTexture(self.arrow_texture);
+            self.arrow_texture = null;
         }
     }
 };
@@ -247,6 +263,33 @@ pub const Button = struct {
                     .h = rect_h,
                 };
                 _ = c.SDL_RenderDrawRect(renderer, &rect);
+            },
+            .arrow => {
+                // Try to use cached PNG texture first
+                if (icon_cache) |cache| {
+                    if (cache.arrow_texture) |texture| {
+                        var dest_rect = c.SDL_Rect{
+                            .x = center_x - @divTrunc(icon_size, 2),
+                            .y = center_y - @divTrunc(icon_size, 2),
+                            .w = icon_size,
+                            .h = icon_size,
+                        };
+                        _ = c.SDL_RenderCopy(renderer, texture, null, &dest_rect);
+                        return;
+                    }
+                }
+
+                // Fallback: draw diagonal line with arrowhead
+                _ = c.SDL_SetRenderDrawColor(renderer, content_color.r, content_color.g, content_color.b, content_color.a);
+                // Diagonal line from bottom-left to top-right
+                const x1 = center_x - 6;
+                const y1 = center_y + 6;
+                const x2 = center_x + 6;
+                const y2 = center_y - 6;
+                _ = c.SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+                // Arrowhead wing lines at the tip (x2, y2)
+                _ = c.SDL_RenderDrawLine(renderer, x2, y2, x2 - 6, y2);
+                _ = c.SDL_RenderDrawLine(renderer, x2, y2, x2, y2 + 6);
             },
         }
     }

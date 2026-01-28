@@ -220,6 +220,13 @@ pub fn main() !void {
         .h = 30,
         .content = .{ .icon = .rectangle },
     };
+    const arrow_button = Button{
+        .x = 130,
+        .y = 10,
+        .w = 36,
+        .h = 30,
+        .content = .{ .icon = .arrow },
+    };
 
     // Initialize camera at world origin with zoom 1.0
     var cam = Camera.init(
@@ -403,8 +410,8 @@ pub fn main() !void {
                 }
             }
 
-            // Handle Escape in text_placement or rectangle_placement mode to cancel
-            if ((action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement) and
+            // Handle Escape in text_placement, rectangle_placement, or arrow_placement mode to cancel
+            if ((action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement or action_mgr.current_tool == .arrow_placement) and
                 event.type == c.SDL_KEYDOWN and event.key.keysym.scancode == c.SDL_SCANCODE_ESCAPE)
             {
                 action_mgr.current_tool = .selection;
@@ -455,6 +462,16 @@ pub fn main() !void {
                     current_cursor = .crosshair;
                     continue;
                 }
+
+                if (arrow_button.contains(click_x, click_y)) {
+                    finishTextEdit.call(&action_mgr);
+                    // Enter arrow placement mode
+                    action_mgr.current_tool = .arrow_placement;
+                    action_mgr.selection.clear();
+                    if (cursor_crosshair != null) c.SDL_SetCursor(cursor_crosshair);
+                    current_cursor = .crosshair;
+                    continue;
+                }
             }
 
             // Handle clicking while editing text - either move cursor or end editing
@@ -463,7 +480,7 @@ pub fn main() !void {
                 const click_y = @as(f32, @floatFromInt(event.button.y));
 
                 // Skip if clicking toolbar buttons (handled above)
-                if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y) and !rectangle_button.contains(click_x, click_y)) {
+                if (!text_button.contains(click_x, click_y) and !select_button.contains(click_x, click_y) and !rectangle_button.contains(click_x, click_y) and !arrow_button.contains(click_x, click_y)) {
                     // Check if click is within the text being edited
                     const target_font_size = action_mgr.text_edit.font_size * cam.zoom;
                     const line_spacing = target_font_size * scene.LINE_SPACING_MULTIPLIER;
@@ -638,6 +655,12 @@ pub fn main() !void {
                     action_mgr.rect_create.is_active = true;
                     action_mgr.rect_create.start_world = world_pos;
                     action_mgr.rect_create.current_world = world_pos;
+                } else if (action_mgr.current_tool == .arrow_placement) {
+                    // Start arrow creation drag
+                    const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
+                    action_mgr.arrow_create.is_active = true;
+                    action_mgr.arrow_create.start_world = world_pos;
+                    action_mgr.arrow_create.current_world = world_pos;
                 } else if (action_mgr.current_tool == .selection) {
                     // Check for shift modifier
                     const mod_state = c.SDL_GetModState();
@@ -742,6 +765,9 @@ pub fn main() !void {
                                         } else if (elem.element_type == .image) {
                                             state.start_rect_width = elem.data.image.width;
                                             state.start_rect_height = elem.data.image.height;
+                                        } else if (elem.element_type == .arrow) {
+                                            state.start_rect_width = elem.data.arrow.end_offset.x;
+                                            state.start_rect_height = elem.data.arrow.end_offset.y;
                                         }
                                         action_mgr.resize.element_count += 1;
                                     }
@@ -1044,6 +1070,10 @@ pub fn main() !void {
                                 // Update image dimensions (non-uniform scaling)
                                 elem.data.image.width = elem_state.start_rect_width * sx;
                                 elem.data.image.height = elem_state.start_rect_height * sy;
+                            } else if (elem.element_type == .arrow) {
+                                // Arrow uses uniform scale to maintain angle
+                                elem.data.arrow.end_offset.x = elem_state.start_rect_width * uniform_scale;
+                                elem.data.arrow.end_offset.y = elem_state.start_rect_height * uniform_scale;
                             }
                         }
                     }
@@ -1051,6 +1081,10 @@ pub fn main() !void {
                     // Update rectangle creation drag
                     const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                     action_mgr.rect_create.current_world = current_world;
+                } else if (action_mgr.arrow_create.is_active) {
+                    // Update arrow creation drag
+                    const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    action_mgr.arrow_create.current_world = current_world;
                 } else if (action_mgr.drag_select.is_active) {
                     // Update drag-select rectangle and selection
                     const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
@@ -1082,8 +1116,8 @@ pub fn main() !void {
                     const world_pos = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                     var desired_cursor: @TypeOf(current_cursor) = .arrow;
 
-                    // In text_placement or rectangle_placement mode, always show crosshair
-                    if (action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement) {
+                    // In text_placement, rectangle_placement, or arrow_placement mode, always show crosshair
+                    if (action_mgr.current_tool == .text_placement or action_mgr.current_tool == .rectangle_placement or action_mgr.current_tool == .arrow_placement) {
                         desired_cursor = .crosshair;
                     }
 
@@ -1201,6 +1235,37 @@ pub fn main() !void {
                             .world,
                         ) catch null;
                         // Select the new rectangle and switch back to selection mode
+                        if (new_id) |id| {
+                            action_mgr.selection.clear();
+                            action_mgr.selection.add(id);
+                        }
+                    }
+                    action_mgr.current_tool = .selection;
+                    if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                    current_cursor = .arrow;
+                } else if (action_mgr.arrow_create.is_active) {
+                    // Finish arrow creation
+                    action_mgr.arrow_create.is_active = false;
+                    const start = action_mgr.arrow_create.start_world;
+                    const end = action_mgr.arrow_create.current_world;
+                    const end_offset = Vec2{
+                        .x = end.x - start.x,
+                        .y = end.y - start.y,
+                    };
+
+                    // Only create arrow if it has some length (avoid tiny/accidental clicks)
+                    const arrow_len = @sqrt(end_offset.x * end_offset.x + end_offset.y * end_offset.y);
+                    if (arrow_len > 5) {
+                        const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+                        const new_id = scene_graph.addArrow(
+                            start,
+                            end_offset,
+                            2.0,
+                            12.0,
+                            black,
+                            .world,
+                        ) catch null;
+                        // Select the new arrow and switch back to selection mode
                         if (new_id) |id| {
                             action_mgr.selection.clear();
                             action_mgr.selection.add(id);
@@ -1518,6 +1583,48 @@ pub fn main() !void {
             // Draw second rect for thickness
             const inner_rect = c.SDL_Rect{ .x = x + 1, .y = y + 1, .w = w - 2, .h = h - 2 };
             _ = c.SDL_RenderDrawRect(renderer, &inner_rect);
+        }
+
+        // Render arrow creation preview
+        if (action_mgr.arrow_create.is_active) {
+            const screen_start = cam.worldToScreen(action_mgr.arrow_create.start_world);
+            const screen_end = cam.worldToScreen(action_mgr.arrow_create.current_world);
+
+            _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+
+            const sx: i32 = @intFromFloat(screen_start.x);
+            const sy: i32 = @intFromFloat(screen_start.y);
+            const ex: i32 = @intFromFloat(screen_end.x);
+            const ey: i32 = @intFromFloat(screen_end.y);
+
+            // Draw shaft line
+            _ = c.SDL_RenderDrawLine(renderer, sx, sy, ex, ey);
+            // Draw second line for thickness
+            _ = c.SDL_RenderDrawLine(renderer, sx + 1, sy, ex + 1, ey);
+
+            // Draw arrowhead outline
+            const dx = screen_end.x - screen_start.x;
+            const dy = screen_end.y - screen_start.y;
+            const arrow_len = @sqrt(dx * dx + dy * dy);
+            if (arrow_len > 1.0) {
+                const nx = dx / arrow_len;
+                const ny = dy / arrow_len;
+                const ah_size: f32 = 12.0 * cam.zoom;
+                const angle: f32 = 2.618;
+                const cos_a = @cos(angle);
+                const sin_a = @sin(angle);
+                const w1x = (nx * cos_a - ny * sin_a) * ah_size;
+                const w1y = (nx * sin_a + ny * cos_a) * ah_size;
+                const w2x = (nx * cos_a + ny * sin_a) * ah_size;
+                const w2y = (-nx * sin_a + ny * cos_a) * ah_size;
+
+                const wing1_x: i32 = @intFromFloat(screen_end.x + w1x);
+                const wing1_y: i32 = @intFromFloat(screen_end.y + w1y);
+                const wing2_x: i32 = @intFromFloat(screen_end.x + w2x);
+                const wing2_y: i32 = @intFromFloat(screen_end.y + w2y);
+
+                scene.drawFilledTriangle(renderer, ex, ey, wing1_x, wing1_y, wing2_x, wing2_y);
+            }
         }
 
         // Render all scene elements
@@ -1839,6 +1946,7 @@ pub fn main() !void {
         select_button.render(renderer, font, action_mgr.current_tool == .selection, &icon_cache);
         text_button.render(renderer, font, action_mgr.current_tool == .text_placement, &icon_cache);
         rectangle_button.render(renderer, font, action_mgr.current_tool == .rectangle_placement, &icon_cache);
+        arrow_button.render(renderer, font, action_mgr.current_tool == .arrow_placement, &icon_cache);
 
         // Present the frame (swap buffers)
         c.SDL_RenderPresent(renderer);

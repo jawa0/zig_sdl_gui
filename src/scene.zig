@@ -48,6 +48,7 @@ pub const ElementType = enum {
     text_label,
     rectangle,
     image,
+    arrow,
 
     /// Returns true if this element type can be scaled non-uniformly (independent width/height).
     /// Elements that cannot scale non-uniformly (like text) require uniform scaling to maintain
@@ -56,7 +57,7 @@ pub const ElementType = enum {
     pub fn canScaleNonUniform(self: ElementType) bool {
         return switch (self) {
             .rectangle, .image => true,
-            .text_label => false,
+            .text_label, .arrow => false,
         };
     }
 };
@@ -110,6 +111,13 @@ pub const Rectangle = struct {
     }
 };
 
+pub const Arrow = struct {
+    end_offset: Vec2, // relative to transform.position (the start point)
+    thickness: f32, // line thickness in world units
+    arrowhead_size: f32, // arrowhead edge length in world units
+    color: c.SDL_Color,
+};
+
 // ============================================================================
 // Standalone Drawing Functions
 // ============================================================================
@@ -148,6 +156,92 @@ pub fn drawRectangleOutline(
     }
 }
 
+/// Draw a filled triangle given three screen-space vertices.
+/// Uses horizontal scanline fill between edges v0–v1 and v0–v2.
+pub fn drawFilledTriangle(
+    renderer: *c.SDL_Renderer,
+    v0x: i32,
+    v0y: i32,
+    v1x: i32,
+    v1y: i32,
+    v2x: i32,
+    v2y: i32,
+) void {
+    // Sort vertices by Y coordinate (top to bottom in screen space)
+    var ax = v0x;
+    var ay = v0y;
+    var bx = v1x;
+    var by = v1y;
+    var cx = v2x;
+    var cy = v2y;
+
+    if (ay > by) {
+        const tx = ax;
+        const ty = ay;
+        ax = bx;
+        ay = by;
+        bx = tx;
+        by = ty;
+    }
+    if (ay > cy) {
+        const tx = ax;
+        const ty = ay;
+        ax = cx;
+        ay = cy;
+        cx = tx;
+        cy = ty;
+    }
+    if (by > cy) {
+        const tx = bx;
+        const ty = by;
+        bx = cx;
+        by = cy;
+        cx = tx;
+        cy = ty;
+    }
+
+    // Now ay <= by <= cy
+    const total_height = cy - ay;
+    if (total_height == 0) {
+        // Degenerate triangle - draw a line
+        _ = c.SDL_RenderDrawLine(renderer, ax, ay, cx, cy);
+        return;
+    }
+
+    // Scan from ay to cy
+    var y = ay;
+    while (y <= cy) : (y += 1) {
+        const second_half = y > by or by == ay;
+        const segment_height: f32 = if (second_half)
+            @floatFromInt(cy - by)
+        else
+            @floatFromInt(by - ay);
+
+        if (segment_height == 0) continue;
+
+        const alpha: f32 = @as(f32, @floatFromInt(y - ay)) / @as(f32, @floatFromInt(total_height));
+        const beta: f32 = if (second_half)
+            @as(f32, @floatFromInt(y - by)) / segment_height
+        else
+            @as(f32, @floatFromInt(y - ay)) / segment_height;
+
+        // Interpolate x along edge a->c and along edge a->b or b->c
+        var x_a: i32 = ax + @as(i32, @intFromFloat(@as(f32, @floatFromInt(cx - ax)) * alpha));
+        var x_b: i32 = if (second_half)
+            bx + @as(i32, @intFromFloat(@as(f32, @floatFromInt(cx - bx)) * beta))
+        else
+            ax + @as(i32, @intFromFloat(@as(f32, @floatFromInt(bx - ax)) * beta));
+
+        if (x_a > x_b) {
+            const tmp = x_a;
+            x_a = x_b;
+            x_b = tmp;
+        }
+
+        _ = c.SDL_RenderDrawLine(renderer, x_a, y, x_b, y);
+    }
+}
+
 /// Draw text using a cache at the specified screen position with given font size.
 /// This is a low-level drawing function that can be called independently of the scene graph.
 /// Returns the displayed dimensions if successful.
@@ -164,6 +258,7 @@ pub const Element = struct {
         text_label: TextLabel,
         rectangle: Rectangle,
         image: Image,
+        arrow: Arrow,
     },
 
     pub fn deinit(self: *Element, allocator: std.mem.Allocator) void {
@@ -171,6 +266,7 @@ pub const Element = struct {
             .text_label => self.data.text_label.deinit(allocator),
             .rectangle => {}, // No cleanup needed for rectangles
             .image => {}, // Textures owned by SceneGraph.image_textures, not elements
+            .arrow => {}, // No cleanup needed for arrows
         }
     }
 };
@@ -406,6 +502,57 @@ pub const SceneGraph = struct {
         return id;
     }
 
+    pub fn addArrow(
+        self: *SceneGraph,
+        start: Vec2,
+        end_offset: Vec2,
+        thickness: f32,
+        arrowhead_size: f32,
+        color: c.SDL_Color,
+        space: CoordinateSpace,
+    ) !u32 {
+        const id = self.next_id;
+        self.next_id += 1;
+
+        const arrow_data = Arrow{
+            .end_offset = end_offset,
+            .thickness = thickness,
+            .arrowhead_size = arrowhead_size,
+            .color = color,
+        };
+
+        // Calculate AABB from endpoints with arrowhead padding
+        const padding = arrowhead_size;
+        const min_x = @min(@as(f32, 0), end_offset.x) - padding;
+        const min_y = @min(@as(f32, 0), end_offset.y) - padding;
+        const max_x = @max(@as(f32, 0), end_offset.x) + padding;
+        const max_y = @max(@as(f32, 0), end_offset.y) + padding;
+
+        const bbox = BoundingBox{
+            .x = start.x + min_x,
+            .y = start.y + min_y,
+            .w = max_x - min_x,
+            .h = max_y - min_y,
+        };
+
+        const element = Element{
+            .id = id,
+            .transform = Transform{
+                .position = start,
+                .rotation = 0,
+                .scale = Vec2{ .x = 1, .y = 1 },
+            },
+            .space = space,
+            .visible = true,
+            .element_type = .arrow,
+            .bounding_box = bbox,
+            .data = .{ .arrow = arrow_data },
+        };
+
+        try self.elements.append(self.allocator, element);
+        return id;
+    }
+
     pub fn removeElement(self: *SceneGraph, id: u32) bool {
         for (self.elements.items, 0..) |*elem, i| {
             if (elem.id == id) {
@@ -488,6 +635,16 @@ pub const SceneGraph = struct {
                     },
                 };
             },
+            .arrow => {
+                new_element.data = .{
+                    .arrow = Arrow{
+                        .end_offset = orig.data.arrow.end_offset,
+                        .thickness = orig.data.arrow.thickness,
+                        .arrowhead_size = orig.data.arrow.arrowhead_size,
+                        .color = orig.data.arrow.color,
+                    },
+                };
+            },
         }
 
         try self.elements.append(self.allocator, new_element);
@@ -522,6 +679,7 @@ pub const SceneGraph = struct {
                     // Otherwise leave color as-is
                 },
                 .image => {}, // Images unaffected by color scheme
+                .arrow => {}, // Arrows keep their color as-is
             }
         }
     }
@@ -632,6 +790,20 @@ pub const SceneGraph = struct {
                 elem.bounding_box.y = elem.transform.position.y - h;
                 elem.bounding_box.w = img.width * elem.transform.scale.x;
                 elem.bounding_box.h = h;
+            },
+            .arrow => {
+                const arw = &elem.data.arrow;
+                const scaled_end_x = arw.end_offset.x * elem.transform.scale.x;
+                const scaled_end_y = arw.end_offset.y * elem.transform.scale.y;
+                const padding = arw.arrowhead_size;
+                const min_x = @min(@as(f32, 0), scaled_end_x) - padding;
+                const min_y = @min(@as(f32, 0), scaled_end_y) - padding;
+                const max_x = @max(@as(f32, 0), scaled_end_x) + padding;
+                const max_y = @max(@as(f32, 0), scaled_end_y) + padding;
+                elem.bounding_box.x = elem.transform.position.x + min_x;
+                elem.bounding_box.y = elem.transform.position.y + min_y;
+                elem.bounding_box.w = max_x - min_x;
+                elem.bounding_box.h = max_y - min_y;
             },
         }
     }
@@ -832,6 +1004,83 @@ pub const SceneGraph = struct {
                         .h = @intFromFloat(screen_height),
                     };
                     _ = c.SDL_RenderCopy(renderer, img.texture, null, &dest_rect);
+                },
+                .arrow => {
+                    const arw = &elem.data.arrow;
+
+                    // Start point is transform.position, end is position + scaled end_offset
+                    const start_world = elem.transform.position;
+                    const end_world = Vec2{
+                        .x = start_world.x + arw.end_offset.x * elem.transform.scale.x,
+                        .y = start_world.y + arw.end_offset.y * elem.transform.scale.y,
+                    };
+
+                    const screen_start = switch (elem.space) {
+                        .world => cam.worldToScreen(start_world),
+                        .screen => start_world,
+                    };
+                    const screen_end = switch (elem.space) {
+                        .world => cam.worldToScreen(end_world),
+                        .screen => end_world,
+                    };
+
+                    _ = c.SDL_SetRenderDrawColor(renderer, arw.color.r, arw.color.g, arw.color.b, arw.color.a);
+
+                    // Calculate direction vector
+                    const dx = screen_end.x - screen_start.x;
+                    const dy = screen_end.y - screen_start.y;
+                    const len = @sqrt(dx * dx + dy * dy);
+                    if (len < 1.0) continue;
+
+                    // Normalized direction and perpendicular
+                    const nx = dx / len;
+                    const ny = dy / len;
+                    const px = -ny; // perpendicular
+                    const py = nx;
+
+                    // Draw thick line shaft using parallel lines
+                    const screen_thickness = switch (elem.space) {
+                        .world => arw.thickness * cam.zoom,
+                        .screen => arw.thickness,
+                    };
+                    const half_t = screen_thickness / 2.0;
+                    const line_count: i32 = @max(1, @as(i32, @intFromFloat(screen_thickness)));
+
+                    var li: i32 = 0;
+                    while (li < line_count) : (li += 1) {
+                        const offset = -half_t + @as(f32, @floatFromInt(li));
+                        const x1: i32 = @intFromFloat(screen_start.x + px * offset);
+                        const y1: i32 = @intFromFloat(screen_start.y + py * offset);
+                        const x2: i32 = @intFromFloat(screen_end.x + px * offset);
+                        const y2: i32 = @intFromFloat(screen_end.y + py * offset);
+                        _ = c.SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+                    }
+
+                    // Draw arrowhead as filled triangle
+                    const screen_arrowhead = switch (elem.space) {
+                        .world => arw.arrowhead_size * cam.zoom,
+                        .screen => arw.arrowhead_size,
+                    };
+
+                    // Wing vectors at ±150° from direction (pointing backward)
+                    const angle: f32 = 2.618; // ~150 degrees in radians
+                    const cos_a = @cos(angle);
+                    const sin_a = @sin(angle);
+                    // Wing 1: rotate direction by +150°
+                    const w1x = (nx * cos_a - ny * sin_a) * screen_arrowhead;
+                    const w1y = (nx * sin_a + ny * cos_a) * screen_arrowhead;
+                    // Wing 2: rotate direction by -150°
+                    const w2x = (nx * cos_a + ny * sin_a) * screen_arrowhead;
+                    const w2y = (-nx * sin_a + ny * cos_a) * screen_arrowhead;
+
+                    const tip_x: i32 = @intFromFloat(screen_end.x);
+                    const tip_y: i32 = @intFromFloat(screen_end.y);
+                    const wing1_x: i32 = @intFromFloat(screen_end.x + w1x);
+                    const wing1_y: i32 = @intFromFloat(screen_end.y + w1y);
+                    const wing2_x: i32 = @intFromFloat(screen_end.x + w2x);
+                    const wing2_y: i32 = @intFromFloat(screen_end.y + w2y);
+
+                    drawFilledTriangle(renderer, tip_x, tip_y, wing1_x, wing1_y, wing2_x, wing2_y);
                 },
             }
         }
