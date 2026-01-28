@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const math = @import("math.zig");
 const camera = @import("camera.zig");
 const scene = @import("scene.zig");
@@ -11,8 +10,7 @@ const action = @import("action.zig");
 const color_scheme = @import("color_scheme.zig");
 const grid = @import("grid.zig");
 const button = @import("button.zig");
-
-const is_macos = builtin.os.tag == .macos;
+const platform = @import("platform.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -161,11 +159,14 @@ pub fn main() !void {
     };
     defer c.SDL_DestroyWindow(window);
 
-    // Create hardware-accelerated renderer with vsync (provides double buffering)
+    const current_platform = platform.detect();
+    const vsync_flag: u32 = if (current_platform.useVsync()) c.SDL_RENDERER_PRESENTVSYNC else 0;
+
+    // Create hardware-accelerated renderer (vsync disabled on WSL)
     const renderer = c.SDL_CreateRenderer(
         window,
         -1,
-        c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC,
+        @as(u32, c.SDL_RENDERER_ACCELERATED) | vsync_flag,
     ) orelse {
         std.debug.print("Renderer creation failed: {s}\n", .{c.SDL_GetError()});
         return error.RendererCreationFailed;
@@ -279,7 +280,7 @@ pub fn main() !void {
                     const ctrl_held = (mod_state & c.KMOD_CTRL) != 0;
                     const cmd_held = (mod_state & c.KMOD_GUI) != 0; // Cmd on macOS, Win key elsewhere
                     // Use Cmd on macOS, Ctrl on other platforms for shortcuts
-                    const shortcut_mod = if (is_macos) cmd_held else ctrl_held;
+                    const shortcut_mod = if (platform.use_mac_keybindings) cmd_held else ctrl_held;
 
                     // Backspace - delete character before cursor
                     if (scancode == c.SDL_SCANCODE_BACKSPACE) {
@@ -302,11 +303,26 @@ pub fn main() !void {
                     // Arrow keys - cursor movement
                     // Word movement: Ctrl+Arrow (Windows/Linux), Option+Arrow (macOS)
                     // Line start/end: Cmd+Arrow (macOS only)
+                    // Selection: Shift+movement extends selection
                     const alt_held = (mod_state & c.KMOD_ALT) != 0;
-                    const word_mod = if (is_macos) alt_held else ctrl_held;
+                    const shift_held = (mod_state & c.KMOD_SHIFT) != 0;
+                    const word_mod = if (platform.use_mac_keybindings) alt_held else ctrl_held;
+
+                    // Helper: before cursor movement, handle selection
+                    // If shift is held, start/extend selection; otherwise clear it
+                    const handleSelectionBeforeMove = struct {
+                        fn call(buffer: *@import("text_buffer.zig").TextBuffer, shift: bool) void {
+                            if (shift) {
+                                buffer.startSelection();
+                            } else {
+                                buffer.clearSelection();
+                            }
+                        }
+                    }.call;
 
                     if (scancode == c.SDL_SCANCODE_LEFT) {
-                        if (is_macos and cmd_held) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
+                        if (platform.use_mac_keybindings and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToLineStart();
                         } else if (word_mod) {
                             action_mgr.text_edit.buffer.cursorToPrevWord();
@@ -317,7 +333,8 @@ pub fn main() !void {
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_RIGHT) {
-                        if (is_macos and cmd_held) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
+                        if (platform.use_mac_keybindings and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToLineEnd();
                         } else if (word_mod) {
                             action_mgr.text_edit.buffer.cursorToNextWord();
@@ -328,7 +345,8 @@ pub fn main() !void {
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_UP) {
-                        if (is_macos and cmd_held) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
+                        if (platform.use_mac_keybindings and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToBufferStart();
                         } else {
                             action_mgr.text_edit.buffer.cursorToPrevLine();
@@ -337,7 +355,8 @@ pub fn main() !void {
                         continue;
                     }
                     if (scancode == c.SDL_SCANCODE_DOWN) {
-                        if (is_macos and cmd_held) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
+                        if (platform.use_mac_keybindings and cmd_held) {
                             action_mgr.text_edit.buffer.cursorToBufferEnd();
                         } else {
                             action_mgr.text_edit.buffer.cursorToNextLine();
@@ -347,6 +366,7 @@ pub fn main() !void {
                     }
                     // Home - beginning of line (Ctrl/Cmd+Home = beginning of buffer)
                     if (scancode == c.SDL_SCANCODE_HOME) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
                         if (shortcut_mod) {
                             action_mgr.text_edit.buffer.cursorToBufferStart();
                         } else {
@@ -357,6 +377,7 @@ pub fn main() !void {
                     }
                     // End - end of line (Ctrl/Cmd+End = end of buffer)
                     if (scancode == c.SDL_SCANCODE_END) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
                         if (shortcut_mod) {
                             action_mgr.text_edit.buffer.cursorToBufferEnd();
                         } else {
@@ -367,12 +388,14 @@ pub fn main() !void {
                     }
                     // Ctrl+A - beginning of line (Emacs style, works on all platforms)
                     if (ctrl_held and scancode == c.SDL_SCANCODE_A) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
                         action_mgr.text_edit.buffer.cursorToLineStart();
                         action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
                     }
                     // Ctrl+E - end of line (Emacs style, works on all platforms)
                     if (ctrl_held and scancode == c.SDL_SCANCODE_E) {
+                        handleSelectionBeforeMove(&action_mgr.text_edit.buffer, shift_held);
                         action_mgr.text_edit.buffer.cursorToLineEnd();
                         action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
@@ -551,6 +574,14 @@ pub fn main() !void {
                         }
 
                         // Move cursor to clicked position
+                        // Check for Shift to extend selection
+                        const click_mod_state = c.SDL_GetModState();
+                        const click_shift_held = (click_mod_state & c.KMOD_SHIFT) != 0;
+                        if (click_shift_held) {
+                            action_mgr.text_edit.buffer.startSelection();
+                        } else {
+                            action_mgr.text_edit.buffer.clearSelection();
+                        }
                         action_mgr.text_edit.buffer.cursor = best_cursor_pos;
                         action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
                         continue;
@@ -1615,15 +1646,63 @@ pub fn main() !void {
                 const screen_pos = cam.worldToScreen(action_mgr.text_edit.world_pos);
                 _ = c.TTF_SetFontSize(font, font_size_int);
 
+                // Get selection range if any
+                const selection = action_mgr.text_edit.buffer.getSelection();
+
                 // Split text by newlines and render each line
                 var line_y: f32 = screen_pos.y;
                 var line_start: usize = 0;
                 var i: usize = 0;
                 while (i <= edit_text.len) : (i += 1) {
                     if (i == edit_text.len or edit_text[i] == '\n') {
+                        const line_end = i;
+
+                        // Render selection highlight for this line if selection overlaps
+                        if (selection) |sel| {
+                            // Check if selection overlaps this line
+                            if (sel.end > line_start and sel.start < line_end) {
+                                // Calculate the portion of selection on this line
+                                const sel_start_on_line = if (sel.start > line_start) sel.start - line_start else 0;
+                                const sel_end_on_line = if (sel.end < line_end) sel.end - line_start else line_end - line_start;
+
+                                // Measure text width up to selection start
+                                var sel_x_start: f32 = screen_pos.x;
+                                if (sel_start_on_line > 0) {
+                                    const before_sel = edit_text[line_start .. line_start + sel_start_on_line];
+                                    const before_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{before_sel}) catch "";
+                                    var before_w: c_int = 0;
+                                    _ = c.TTF_SizeText(font, before_z.ptr, &before_w, null);
+                                    sel_x_start += @floatFromInt(before_w);
+                                }
+
+                                // Measure selection width
+                                var sel_width: f32 = 0;
+                                if (sel_end_on_line > sel_start_on_line) {
+                                    const sel_text = edit_text[line_start + sel_start_on_line .. line_start + sel_end_on_line];
+                                    const sel_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{sel_text}) catch "";
+                                    var sel_w: c_int = 0;
+                                    _ = c.TTF_SizeText(font, sel_z.ptr, &sel_w, null);
+                                    sel_width = @floatFromInt(sel_w);
+                                }
+
+                                // Draw selection highlight rectangle
+                                // Use line_spacing for height so consecutive selections abut
+                                if (sel_width > 0) {
+                                    _ = c.SDL_SetRenderDrawColor(renderer, 100, 149, 237, 255); // Cornflower blue
+                                    var sel_rect = c.SDL_Rect{
+                                        .x = @intFromFloat(sel_x_start),
+                                        .y = @intFromFloat(line_y),
+                                        .w = @intFromFloat(sel_width),
+                                        .h = @intFromFloat(line_spacing),
+                                    };
+                                    _ = c.SDL_RenderFillRect(renderer, &sel_rect);
+                                }
+                            }
+                        }
+
                         // Render this line (if not empty)
-                        if (i > line_start) {
-                            const line = edit_text[line_start..i];
+                        if (line_end > line_start) {
+                            const line = edit_text[line_start..line_end];
                             const line_z = std.fmt.bufPrintZ(&fps_text_buf, "{s}", .{line}) catch "";
 
                             const text_surface = c.TTF_RenderText_Blended(font, line_z.ptr, colors.text);

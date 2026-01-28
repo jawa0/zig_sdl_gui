@@ -138,13 +138,15 @@ pub const TextEditState = struct {
     }
 
     /// Start editing an existing text element
+    /// Selects all text so typing replaces it, or user can click to deselect
     pub fn startEditingElement(self: *TextEditState, element_id: u32, pos: Vec2, existing_text: []const u8) void {
         self.is_editing = true;
         self.world_pos = pos;
         self.editing_element_id = element_id;
         self.buffer.clear();
         self.buffer.insert(existing_text);
-        // Position cursor at end
+        // Select all text (anchor at start, cursor at end)
+        self.buffer.selection_anchor = 0;
         self.buffer.cursorToBufferEnd();
     }
 

@@ -3,8 +3,8 @@ const std = @import("std");
 /// Maximum buffer size for text content
 pub const MAX_BUFFER_SIZE: usize = 4096;
 
-/// A text buffer with cursor support, similar to an Emacs buffer.
-/// Supports insertion, deletion, and cursor movement operations.
+/// A text buffer with cursor and selection support, similar to an Emacs buffer.
+/// Supports insertion, deletion, cursor movement, and text selection.
 /// Can be reused across different text editing controls.
 pub const TextBuffer = struct {
     /// The text content
@@ -13,6 +13,8 @@ pub const TextBuffer = struct {
     len: usize = 0,
     /// Cursor position (byte index, 0 = before first char)
     cursor: usize = 0,
+    /// Selection anchor (when non-null, text between anchor and cursor is selected)
+    selection_anchor: ?usize = null,
     /// Whether text should wrap at a certain width (false = grow bounds)
     wrap: bool = false,
     /// Wrap width in characters (only used if wrap is true)
@@ -35,6 +37,7 @@ pub const TextBuffer = struct {
     pub fn clear(self: *TextBuffer) void {
         self.len = 0;
         self.cursor = 0;
+        self.selection_anchor = null;
     }
 
     /// Get the current text content as a slice
@@ -42,8 +45,74 @@ pub const TextBuffer = struct {
         return self.content[0..self.len];
     }
 
+    // ========== Selection Methods ==========
+
+    /// Check if there is an active selection
+    pub fn hasSelection(self: *const TextBuffer) bool {
+        if (self.selection_anchor) |anchor| {
+            return anchor != self.cursor;
+        }
+        return false;
+    }
+
+    /// Get the selection range (start, end) where start <= end
+    /// Returns null if no selection
+    pub fn getSelection(self: *const TextBuffer) ?struct { start: usize, end: usize } {
+        if (self.selection_anchor) |anchor| {
+            if (anchor != self.cursor) {
+                return .{
+                    .start = @min(anchor, self.cursor),
+                    .end = @max(anchor, self.cursor),
+                };
+            }
+        }
+        return null;
+    }
+
+    /// Get the selected text as a slice
+    /// Returns null if no selection
+    pub fn getSelectedText(self: *const TextBuffer) ?[]const u8 {
+        if (self.getSelection()) |sel| {
+            return self.content[sel.start..sel.end];
+        }
+        return null;
+    }
+
+    /// Clear the selection (keeps cursor position)
+    pub fn clearSelection(self: *TextBuffer) void {
+        self.selection_anchor = null;
+    }
+
+    /// Start a selection at the current cursor position (if not already selecting)
+    pub fn startSelection(self: *TextBuffer) void {
+        if (self.selection_anchor == null) {
+            self.selection_anchor = self.cursor;
+        }
+    }
+
+    /// Delete the selected text and clear selection
+    /// Returns true if text was deleted
+    pub fn deleteSelection(self: *TextBuffer) bool {
+        if (self.getSelection()) |sel| {
+            // Shift content after selection back
+            const tail_len = self.len - sel.end;
+            for (0..tail_len) |i| {
+                self.content[sel.start + i] = self.content[sel.end + i];
+            }
+            self.len -= (sel.end - sel.start);
+            self.cursor = sel.start;
+            self.selection_anchor = null;
+            return true;
+        }
+        return false;
+    }
+
     /// Insert text at the current cursor position
+    /// If there's a selection, it is deleted first
     pub fn insert(self: *TextBuffer, text: []const u8) void {
+        // Delete selection first if present
+        _ = self.deleteSelection();
+
         const space_available = MAX_BUFFER_SIZE - self.len;
         const to_insert = @min(text.len, space_available);
         if (to_insert == 0) return;
@@ -66,7 +135,11 @@ pub const TextBuffer = struct {
     }
 
     /// Insert a single character at cursor position
+    /// If there's a selection, it is deleted first
     pub fn insertChar(self: *TextBuffer, char: u8) void {
+        // Delete selection first if present
+        _ = self.deleteSelection();
+
         if (self.len >= MAX_BUFFER_SIZE) return;
 
         // Shift existing content after cursor
@@ -84,7 +157,11 @@ pub const TextBuffer = struct {
     }
 
     /// Delete character before cursor (backspace)
+    /// If there's a selection, deletes the selection instead
     pub fn deleteBackward(self: *TextBuffer) void {
+        // If there's a selection, delete it instead
+        if (self.deleteSelection()) return;
+
         if (self.cursor == 0) return;
 
         // Shift content after cursor back by one
@@ -100,7 +177,11 @@ pub const TextBuffer = struct {
     }
 
     /// Delete character at cursor (delete key)
+    /// If there's a selection, deletes the selection instead
     pub fn deleteForward(self: *TextBuffer) void {
+        // If there's a selection, delete it instead
+        if (self.deleteSelection()) return;
+
         if (self.cursor >= self.len) return;
 
         // Shift content after cursor back by one
@@ -682,4 +763,159 @@ test "TextBuffer.cursorToPrevWord at start does nothing" {
 
     buf.cursorToPrevWord();
     try testing.expectEqual(@as(usize, 0), buf.cursor);
+}
+
+// ============================================================================
+// Selection Tests
+// ============================================================================
+
+test "TextBuffer.hasSelection returns false when no selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    try testing.expect(!buf.hasSelection());
+}
+
+test "TextBuffer.hasSelection returns false when anchor equals cursor" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.selection_anchor = 3;
+    buf.cursor = 3;
+    try testing.expect(!buf.hasSelection());
+}
+
+test "TextBuffer.hasSelection returns true when anchor differs from cursor" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.selection_anchor = 1;
+    buf.cursor = 4;
+    try testing.expect(buf.hasSelection());
+}
+
+test "TextBuffer.getSelection returns normalized range" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+
+    // Selection from left to right
+    buf.selection_anchor = 1;
+    buf.cursor = 4;
+    const sel1 = buf.getSelection().?;
+    try testing.expectEqual(@as(usize, 1), sel1.start);
+    try testing.expectEqual(@as(usize, 4), sel1.end);
+
+    // Selection from right to left (cursor before anchor)
+    buf.selection_anchor = 4;
+    buf.cursor = 1;
+    const sel2 = buf.getSelection().?;
+    try testing.expectEqual(@as(usize, 1), sel2.start);
+    try testing.expectEqual(@as(usize, 4), sel2.end);
+}
+
+test "TextBuffer.getSelectedText returns selected portion" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 0;
+    buf.cursor = 5;
+
+    const selected = buf.getSelectedText().?;
+    try testing.expectEqualStrings("Hello", selected);
+}
+
+test "TextBuffer.startSelection sets anchor at cursor" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.cursor = 3;
+
+    try testing.expectEqual(@as(?usize, null), buf.selection_anchor);
+    buf.startSelection();
+    try testing.expectEqual(@as(?usize, 3), buf.selection_anchor);
+}
+
+test "TextBuffer.startSelection does not change existing anchor" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.selection_anchor = 1;
+    buf.cursor = 3;
+
+    buf.startSelection();
+    try testing.expectEqual(@as(?usize, 1), buf.selection_anchor);
+}
+
+test "TextBuffer.clearSelection removes anchor" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.selection_anchor = 1;
+    buf.cursor = 4;
+
+    buf.clearSelection();
+    try testing.expectEqual(@as(?usize, null), buf.selection_anchor);
+    try testing.expectEqual(@as(usize, 4), buf.cursor); // cursor unchanged
+}
+
+test "TextBuffer.deleteSelection removes selected text" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 5;
+    buf.cursor = 11; // Select " World"
+
+    const deleted = buf.deleteSelection();
+    try testing.expect(deleted);
+    try testing.expectEqualStrings("Hello", buf.getText());
+    try testing.expectEqual(@as(usize, 5), buf.cursor);
+    try testing.expectEqual(@as(?usize, null), buf.selection_anchor);
+}
+
+test "TextBuffer.deleteSelection works with reversed selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 11;
+    buf.cursor = 5; // Select " World" but cursor is at start
+
+    const deleted = buf.deleteSelection();
+    try testing.expect(deleted);
+    try testing.expectEqualStrings("Hello", buf.getText());
+    try testing.expectEqual(@as(usize, 5), buf.cursor);
+}
+
+test "TextBuffer.insert replaces selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 6;
+    buf.cursor = 11; // Select "World"
+
+    buf.insert("Zig");
+    try testing.expectEqualStrings("Hello Zig", buf.getText());
+    try testing.expectEqual(@as(usize, 9), buf.cursor);
+    try testing.expectEqual(@as(?usize, null), buf.selection_anchor);
+}
+
+test "TextBuffer.deleteBackward deletes selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 0;
+    buf.cursor = 6; // Select "Hello "
+
+    buf.deleteBackward();
+    try testing.expectEqualStrings("World", buf.getText());
+    try testing.expectEqual(@as(usize, 0), buf.cursor);
+}
+
+test "TextBuffer.deleteForward deletes selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello World");
+    buf.selection_anchor = 5;
+    buf.cursor = 11; // Select " World"
+
+    buf.deleteForward();
+    try testing.expectEqualStrings("Hello", buf.getText());
+    try testing.expectEqual(@as(usize, 5), buf.cursor);
+}
+
+test "TextBuffer.clear also clears selection" {
+    var buf = TextBuffer.init();
+    buf.insert("Hello");
+    buf.selection_anchor = 1;
+    buf.cursor = 4;
+
+    buf.clear();
+    try testing.expectEqual(@as(?usize, null), buf.selection_anchor);
 }
