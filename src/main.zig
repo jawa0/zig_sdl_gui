@@ -991,12 +991,15 @@ pub fn main() !void {
                         }
                     }
 
+                    // Hold Shift to force uniform (aspect-ratio-preserving) scaling
+                    const shift_held = (c.SDL_GetModState() & c.KMOD_SHIFT) != 0;
+
                     // Apply resize to all elements in the selection
                     for (action_mgr.resize.element_states[0..action_mgr.resize.element_count]) |elem_state| {
                         if (scene_graph.findElement(elem_state.element_id)) |elem| {
-                            // Use uniform scaling if ANY element in selection requires it,
+                            // Use uniform scaling if Shift is held, ANY element in selection requires it,
                             // otherwise allow non-uniform scaling for element types that support it
-                            const use_uniform = selection_requires_uniform or !elem.element_type.canScaleNonUniform();
+                            const use_uniform = shift_held or selection_requires_uniform or !elem.element_type.canScaleNonUniform();
                             const sx = if (use_uniform) uniform_scale else width_scale;
                             const sy = if (use_uniform) uniform_scale else height_scale;
 
