@@ -133,8 +133,8 @@ pub fn main() !void {
     }
     defer c.TTF_Quit();
 
-    // Initialize SDL_image for PNG loading
-    const img_flags = c.IMG_INIT_PNG;
+    // Initialize SDL_image for PNG and JPG loading
+    const img_flags = c.IMG_INIT_PNG | c.IMG_INIT_JPG;
     if ((c.IMG_Init(img_flags) & img_flags) != img_flags) {
         std.debug.print("SDL_image init failed: {s}\n", .{c.IMG_GetError()});
         return error.IMGInitFailed;
@@ -739,6 +739,9 @@ pub fn main() !void {
                                         } else if (elem.element_type == .rectangle) {
                                             state.start_rect_width = elem.data.rectangle.width;
                                             state.start_rect_height = elem.data.rectangle.height;
+                                        } else if (elem.element_type == .image) {
+                                            state.start_rect_width = elem.data.image.width;
+                                            state.start_rect_height = elem.data.image.height;
                                         }
                                         action_mgr.resize.element_count += 1;
                                     }
@@ -1034,6 +1037,10 @@ pub fn main() !void {
                             } else if (elem.element_type == .text_label) {
                                 // Text uses uniform scale to maintain aspect ratio
                                 elem.data.text_label.font_size = elem_state.start_font_size * uniform_scale;
+                            } else if (elem.element_type == .image) {
+                                // Update image dimensions (non-uniform scaling)
+                                elem.data.image.width = elem_state.start_rect_width * sx;
+                                elem.data.image.height = elem_state.start_rect_height * sy;
                             }
                         }
                     }
@@ -1202,6 +1209,49 @@ pub fn main() !void {
                 } else if (action_mgr.drag_select.is_active) {
                     action_mgr.drag_select.is_active = false;
                 }
+            }
+
+            // Handle file drop (images)
+            if (event.type == c.SDL_DROPFILE) {
+                const file_path = event.drop.file;
+                defer c.SDL_free(file_path);
+
+                if (c.IMG_Load(file_path)) |surface| {
+                    defer c.SDL_FreeSurface(surface);
+                    if (c.SDL_CreateTextureFromSurface(renderer, surface)) |texture| {
+                        _ = c.SDL_SetTextureScaleMode(texture, c.SDL_ScaleModeLinear);
+                        _ = c.SDL_SetTextureBlendMode(texture, c.SDL_BLENDMODE_BLEND);
+
+                        const img_w: f32 = @floatFromInt(surface.*.w);
+                        const img_h: f32 = @floatFromInt(surface.*.h);
+
+                        // Place at center of current viewport
+                        const center_x = cam.position.x - img_w / 2.0;
+                        const center_y = cam.position.y + img_h / 2.0;
+
+                        // Register texture ownership
+                        scene_graph.image_textures.append(scene_graph.allocator, texture) catch {
+                            c.SDL_DestroyTexture(texture);
+                            continue;
+                        };
+
+                        const new_id = scene_graph.addImage(
+                            texture,
+                            Vec2{ .x = center_x, .y = center_y },
+                            img_w,
+                            img_h,
+                            .world,
+                        ) catch continue;
+
+                        // Select the new image and switch to selection tool
+                        action_mgr.selection.clear();
+                        action_mgr.selection.add(new_id);
+                        action_mgr.current_tool = .selection;
+                        if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                        current_cursor = .arrow;
+                    }
+                }
+                continue;
             }
 
             // Generate action from input event

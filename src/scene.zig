@@ -47,7 +47,7 @@ pub const BoundingBox = struct {
 pub const ElementType = enum {
     text_label,
     rectangle,
-    // Future: circle, image, etc.
+    image,
 
     /// Returns true if this element type can be scaled non-uniformly (independent width/height).
     /// Elements that cannot scale non-uniformly (like text) require uniform scaling to maintain
@@ -55,7 +55,7 @@ pub const ElementType = enum {
     /// the entire selection must scale uniformly to preserve relative positioning.
     pub fn canScaleNonUniform(self: ElementType) bool {
         return switch (self) {
-            .rectangle => true,
+            .rectangle, .image => true,
             .text_label => false,
         };
     }
@@ -86,6 +86,12 @@ pub const TextLabel = struct {
         self.cache.deinit();
         allocator.free(self.text);
     }
+};
+
+pub const Image = struct {
+    texture: *c.SDL_Texture,
+    width: f32,
+    height: f32,
 };
 
 pub const Rectangle = struct {
@@ -157,24 +163,28 @@ pub const Element = struct {
     data: union {
         text_label: TextLabel,
         rectangle: Rectangle,
+        image: Image,
     },
 
     pub fn deinit(self: *Element, allocator: std.mem.Allocator) void {
         switch (self.element_type) {
             .text_label => self.data.text_label.deinit(allocator),
             .rectangle => {}, // No cleanup needed for rectangles
+            .image => {}, // Textures owned by SceneGraph.image_textures, not elements
         }
     }
 };
 
 pub const SceneGraph = struct {
     elements: std.ArrayList(Element),
+    image_textures: std.ArrayList(*c.SDL_Texture),
     next_id: u32,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) SceneGraph {
         return SceneGraph{
             .elements = std.ArrayList(Element){},
+            .image_textures = std.ArrayList(*c.SDL_Texture){},
             .next_id = 1,
             .allocator = allocator,
         };
@@ -185,6 +195,10 @@ pub const SceneGraph = struct {
             elem.deinit(self.allocator);
         }
         self.elements.deinit(self.allocator);
+        for (self.image_textures.items) |tex| {
+            c.SDL_DestroyTexture(tex);
+        }
+        self.image_textures.deinit(self.allocator);
     }
 
     pub fn addTextLabel(
@@ -354,6 +368,44 @@ pub const SceneGraph = struct {
         return id;
     }
 
+    pub fn addImage(
+        self: *SceneGraph,
+        texture: *c.SDL_Texture,
+        position: Vec2,
+        width: f32,
+        height: f32,
+        space: CoordinateSpace,
+    ) !u32 {
+        const id = self.next_id;
+        self.next_id += 1;
+
+        const img = Image{ .texture = texture, .width = width, .height = height };
+
+        const bbox = BoundingBox{
+            .x = position.x,
+            .y = position.y - height,
+            .w = width,
+            .h = height,
+        };
+
+        const element = Element{
+            .id = id,
+            .transform = Transform{
+                .position = position,
+                .rotation = 0,
+                .scale = Vec2{ .x = 1, .y = 1 },
+            },
+            .space = space,
+            .visible = true,
+            .element_type = .image,
+            .bounding_box = bbox,
+            .data = .{ .image = img },
+        };
+
+        try self.elements.append(self.allocator, element);
+        return id;
+    }
+
     pub fn removeElement(self: *SceneGraph, id: u32) bool {
         for (self.elements.items, 0..) |*elem, i| {
             if (elem.id == id) {
@@ -427,6 +479,15 @@ pub const SceneGraph = struct {
                     ),
                 };
             },
+            .image => {
+                new_element.data = .{
+                    .image = Image{
+                        .texture = orig.data.image.texture,
+                        .width = orig.data.image.width,
+                        .height = orig.data.image.height,
+                    },
+                };
+            },
         }
 
         try self.elements.append(self.allocator, new_element);
@@ -460,6 +521,7 @@ pub const SceneGraph = struct {
                     }
                     // Otherwise leave color as-is
                 },
+                .image => {}, // Images unaffected by color scheme
             }
         }
     }
@@ -561,6 +623,14 @@ pub const SceneGraph = struct {
                 elem.bounding_box.x = elem.transform.position.x;
                 elem.bounding_box.y = elem.transform.position.y - h;  // Bottom in world space
                 elem.bounding_box.w = rect.width * elem.transform.scale.x;
+                elem.bounding_box.h = h;
+            },
+            .image => {
+                const img = &elem.data.image;
+                const h = img.height * elem.transform.scale.y;
+                elem.bounding_box.x = elem.transform.position.x;
+                elem.bounding_box.y = elem.transform.position.y - h;
+                elem.bounding_box.w = img.width * elem.transform.scale.x;
                 elem.bounding_box.h = h;
             },
         }
@@ -737,6 +807,31 @@ pub const SceneGraph = struct {
 
                     // Draw using the standalone drawing function
                     drawRectangleOutline(renderer, x, y, w, h, thickness, rect.color);
+                },
+                .image => {
+                    const img = &elem.data.image;
+
+                    const screen_pos = switch (elem.space) {
+                        .world => cam.worldToScreen(elem.transform.position),
+                        .screen => elem.transform.position,
+                    };
+
+                    const screen_width = switch (elem.space) {
+                        .world => img.width * elem.transform.scale.x * cam.zoom,
+                        .screen => img.width * elem.transform.scale.x,
+                    };
+                    const screen_height = switch (elem.space) {
+                        .world => img.height * elem.transform.scale.y * cam.zoom,
+                        .screen => img.height * elem.transform.scale.y,
+                    };
+
+                    var dest_rect = c.SDL_Rect{
+                        .x = @intFromFloat(screen_pos.x),
+                        .y = @intFromFloat(screen_pos.y),
+                        .w = @intFromFloat(screen_width),
+                        .h = @intFromFloat(screen_height),
+                    };
+                    _ = c.SDL_RenderCopy(renderer, img.texture, null, &dest_rect);
                 },
             }
         }
@@ -925,6 +1020,7 @@ test "CoordinateSpace enum values" {
 test "ElementType enum values" {
     try expectEqual(ElementType.text_label, .text_label);
     try expectEqual(ElementType.rectangle, .rectangle);
+    try expectEqual(ElementType.image, .image);
 }
 
 test "Rectangle.init" {
@@ -1270,8 +1366,9 @@ test "Single line text vs multiline text bounding boxes" {
 }
 
 test "ElementType.canScaleNonUniform returns correct values" {
-    // Rectangles can scale non-uniformly (stretch in width or height independently)
+    // Rectangles and images can scale non-uniformly (stretch in width or height independently)
     try expect(ElementType.rectangle.canScaleNonUniform());
+    try expect(ElementType.image.canScaleNonUniform());
 
     // Text cannot scale non-uniformly (must maintain aspect ratio)
     try expect(!ElementType.text_label.canScaleNonUniform());
