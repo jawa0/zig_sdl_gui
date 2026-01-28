@@ -232,6 +232,12 @@ Rectangle drawing:
 
 The status bar shows current FPS, zoom level, and camera position in world coordinates.
 
+## Known Limitations
+
+### WSL: File drag-and-drop not supported
+
+Dragging files from Windows File Explorer onto the WSL build's window does not work. Windows shows a "not allowed" cursor and the drop is rejected. This is a WSLg architectural limitation: WSLg windows are composited onto the Windows desktop via an RDP bridge and are not native Win32 windows, so they cannot participate in the Win32 OLE drag-and-drop protocol. File drag-and-drop works correctly in the native Windows build.
+
 ## Display Setup (WSL only)
 
 For the GUI window to appear in WSL, you need one of:

@@ -250,6 +250,8 @@ When building on Windows filesystem (`/mnt/c/...`), Zig's cache has permission i
 
 For GUI display, ensure WSLg is working or use an X server.
 
+**File drag-and-drop does not work** in the WSL build. WSLg windows are not native Win32 windows (they are composited via RDP), so they cannot receive Win32 OLE drag-and-drop events from Windows File Explorer. This is a WSLg limitation, not a code bug. Use the native Windows build for drag-and-drop.
+
 ### Windows
 Required DLLs (SDL2.dll, SDL2_ttf.dll) are automatically copied to `zig-out/bin/` during build.
 
