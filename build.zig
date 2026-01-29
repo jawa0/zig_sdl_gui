@@ -37,6 +37,20 @@ fn linkLibC(compile: *std.Build.Step.Compile) void {
     }
 }
 
+fn addCSourceFile(compile: *std.Build.Step.Compile, b: *std.Build, file: []const u8, flags: []const []const u8) void {
+    if (is_zig_16_or_later) {
+        compile.root_module.addCSourceFile(.{
+            .file = b.path(file),
+            .flags = flags,
+        });
+    } else {
+        compile.addCSourceFile(.{
+            .file = b.path(file),
+            .flags = flags,
+        });
+    }
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -91,6 +105,10 @@ pub fn build(b: *std.Build) void {
     }
     linkLibC(exe);
 
+    // SQLite: compile from amalgamation (all platforms)
+    addCSourceFile(exe, b, "libs/sqlite3/sqlite3.c", &.{ "-DSQLITE_THREADSAFE=0", "-DSQLITE_OMIT_LOAD_EXTENSION" });
+    addIncludePath(exe, b.path("libs/sqlite3"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -136,6 +154,10 @@ pub fn build(b: *std.Build) void {
         linkSystemLibrary(unit_tests, "SDL2_image");
     }
     linkLibC(unit_tests);
+
+    // SQLite: compile from amalgamation (all platforms)
+    addCSourceFile(unit_tests, b, "libs/sqlite3/sqlite3.c", &.{ "-DSQLITE_THREADSAFE=0", "-DSQLITE_OMIT_LOAD_EXTENSION" });
+    addIncludePath(unit_tests, b.path("libs/sqlite3"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

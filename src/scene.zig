@@ -93,6 +93,13 @@ pub const Image = struct {
     texture: *c.SDL_Texture,
     width: f32,
     height: f32,
+    file_data: []const u8, // Raw image file bytes (PNG/JPG) for persistence
+    original_filename: []const u8, // Original filename for reference
+
+    pub fn deinit(self: *Image, allocator: std.mem.Allocator) void {
+        allocator.free(self.file_data);
+        allocator.free(self.original_filename);
+    }
 };
 
 pub const Rectangle = struct {
@@ -274,7 +281,7 @@ pub const Element = struct {
         switch (self.element_type) {
             .text_label => self.data.text_label.deinit(allocator),
             .rectangle => {}, // No cleanup needed for rectangles
-            .image => {}, // Textures owned by SceneGraph.image_textures, not elements
+            .image => self.data.image.deinit(allocator), // Free file_data and original_filename
             .arrow => {}, // No cleanup needed for arrows
         }
     }
@@ -479,12 +486,20 @@ pub const SceneGraph = struct {
         position: Vec2,
         width: f32,
         height: f32,
+        file_data: []const u8,
+        original_filename: []const u8,
         space: CoordinateSpace,
     ) !u32 {
         const id = self.next_id;
         self.next_id += 1;
 
-        const img = Image{ .texture = texture, .width = width, .height = height };
+        const img = Image{
+            .texture = texture,
+            .width = width,
+            .height = height,
+            .file_data = file_data,
+            .original_filename = original_filename,
+        };
 
         const bbox = BoundingBox{
             .x = position.x,
@@ -638,11 +653,17 @@ pub const SceneGraph = struct {
                 };
             },
             .image => {
+                const orig_img = &orig.data.image;
+                const cloned_file_data = try self.allocator.dupe(u8, orig_img.file_data);
+                errdefer self.allocator.free(cloned_file_data);
+                const cloned_filename = try self.allocator.dupe(u8, orig_img.original_filename);
                 new_element.data = .{
                     .image = Image{
-                        .texture = orig.data.image.texture,
-                        .width = orig.data.image.width,
-                        .height = orig.data.image.height,
+                        .texture = orig_img.texture,
+                        .width = orig_img.width,
+                        .height = orig_img.height,
+                        .file_data = cloned_file_data,
+                        .original_filename = cloned_filename,
                     },
                 };
             },

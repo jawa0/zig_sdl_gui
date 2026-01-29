@@ -11,6 +11,7 @@ const color_scheme = @import("color_scheme.zig");
 const grid = @import("grid.zig");
 const button = @import("button.zig");
 const platform = @import("platform.zig");
+const db = @import("db.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -247,10 +248,26 @@ pub fn main() !void {
     var input_state = InputState.init();
     var action_mgr = ActionHandler.init();
 
-    // Get current color scheme and populate scene
+    // Get current color scheme
     var colors = ColorScheme.get(action_mgr.scheme_type);
-    const no_preserved_ids: []const u32 = &[_]u32{};
-    try populateScene(&scene_graph, colors, font, no_preserved_ids);
+
+    // Try to load scene from canvas.db if it exists
+    const loaded_from_db = load_blk: {
+        const file = std.fs.cwd().openFile("canvas.db", .{}) catch break :load_blk false;
+        file.close();
+        var load_db = db.Database.openOrCreate("canvas.db") catch break :load_blk false;
+        defer load_db.close();
+        const loaded_scheme = load_db.loadScene(&scene_graph, &cam, renderer, allocator, font) catch break :load_blk false;
+        if (loaded_scheme) |scheme| {
+            action_mgr.scheme_type = scheme;
+            colors = ColorScheme.get(scheme);
+        }
+        break :load_blk true;
+    };
+    if (!loaded_from_db) {
+        const no_preserved_ids: []const u32 = &[_]u32{};
+        try populateScene(&scene_graph, colors, font, no_preserved_ids);
+    }
 
     // Window size tracking (for handling resize)
     var window_width: c_int = WINDOW_WIDTH;
@@ -272,6 +289,25 @@ pub fn main() !void {
 
         // Handle events
         while (c.SDL_PollEvent(&event) != 0) {
+            // Global save shortcut (Ctrl+S / Cmd+S) - works in all modes
+            if (event.type == c.SDL_KEYDOWN and event.key.keysym.scancode == c.SDL_SCANCODE_S) {
+                const save_mod_state = c.SDL_GetModState();
+                const save_ctrl = (save_mod_state & c.KMOD_CTRL) != 0;
+                const save_cmd = (save_mod_state & c.KMOD_GUI) != 0;
+                const save_mod = if (platform.use_mac_keybindings) save_cmd else save_ctrl;
+                if (save_mod) {
+                    var save_db = db.Database.openOrCreate("canvas.db") catch |err| {
+                        std.debug.print("Failed to open database for saving: {}\n", .{err});
+                        continue;
+                    };
+                    defer save_db.close();
+                    save_db.saveScene(&scene_graph, &cam, action_mgr.scheme_type) catch |err| {
+                        std.debug.print("Failed to save scene: {}\n", .{err});
+                    };
+                    continue;
+                }
+            }
+
             // Handle text input when in editing mode
             if (action_mgr.text_edit.is_editing) {
                 if (event.type == c.SDL_TEXTINPUT) {
@@ -1541,6 +1577,18 @@ pub fn main() !void {
                         const img_w: f32 = @floatFromInt(surface.*.w);
                         const img_h: f32 = @floatFromInt(surface.*.h);
 
+                        // Read raw file bytes for persistence
+                        const file_path_slice = std.mem.sliceTo(file_path, 0);
+                        const file_data = std.fs.cwd().readFileAlloc(allocator, file_path_slice, 64 * 1024 * 1024) catch continue;
+                        errdefer allocator.free(file_data);
+
+                        // Extract filename from path
+                        const filename_start = if (std.mem.lastIndexOfAny(u8, file_path_slice, "/\\")) |pos| pos + 1 else 0;
+                        const original_filename = allocator.dupe(u8, file_path_slice[filename_start..]) catch {
+                            allocator.free(file_data);
+                            continue;
+                        };
+
                         // Place at center of current viewport
                         const center_x = cam.position.x - img_w / 2.0;
                         const center_y = cam.position.y + img_h / 2.0;
@@ -1548,6 +1596,8 @@ pub fn main() !void {
                         // Register texture ownership
                         scene_graph.image_textures.append(scene_graph.allocator, texture) catch {
                             c.SDL_DestroyTexture(texture);
+                            allocator.free(file_data);
+                            allocator.free(original_filename);
                             continue;
                         };
 
@@ -1556,6 +1606,8 @@ pub fn main() !void {
                             Vec2{ .x = center_x, .y = center_y },
                             img_w,
                             img_h,
+                            file_data,
+                            original_filename,
                             .world,
                         ) catch continue;
 
