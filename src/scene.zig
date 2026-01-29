@@ -113,9 +113,18 @@ pub const Rectangle = struct {
 
 pub const Arrow = struct {
     end_offset: Vec2, // relative to transform.position (the start point)
+    mid_offset: Vec2, // midpoint offset relative to transform.position
+    has_midpoint: bool, // true if user has manually set the midpoint
     thickness: f32, // line thickness in world units
     arrowhead_size: f32, // arrowhead edge length in world units
     color: c.SDL_Color,
+
+    /// Get the effective midpoint offset. When has_midpoint is false,
+    /// returns the auto-centered midpoint (halfway between tail and head).
+    pub fn effectiveMidOffset(self: *const Arrow) Vec2 {
+        if (self.has_midpoint) return self.mid_offset;
+        return Vec2{ .x = self.end_offset.x / 2.0, .y = self.end_offset.y / 2.0 };
+    }
 };
 
 // ============================================================================
@@ -516,6 +525,8 @@ pub const SceneGraph = struct {
 
         const arrow_data = Arrow{
             .end_offset = end_offset,
+            .mid_offset = Vec2{ .x = end_offset.x / 2.0, .y = end_offset.y / 2.0 },
+            .has_midpoint = false,
             .thickness = thickness,
             .arrowhead_size = arrowhead_size,
             .color = color,
@@ -639,6 +650,8 @@ pub const SceneGraph = struct {
                 new_element.data = .{
                     .arrow = Arrow{
                         .end_offset = orig.data.arrow.end_offset,
+                        .mid_offset = orig.data.arrow.mid_offset,
+                        .has_midpoint = orig.data.arrow.has_midpoint,
                         .thickness = orig.data.arrow.thickness,
                         .arrowhead_size = orig.data.arrow.arrowhead_size,
                         .color = orig.data.arrow.color,
@@ -793,17 +806,40 @@ pub const SceneGraph = struct {
             },
             .arrow => {
                 const arw = &elem.data.arrow;
-                const scaled_end_x = arw.end_offset.x * elem.transform.scale.x;
-                const scaled_end_y = arw.end_offset.y * elem.transform.scale.y;
+                const pos = elem.transform.position;
+                const scale = elem.transform.scale;
                 const padding = arw.arrowhead_size;
-                const min_x = @min(@as(f32, 0), scaled_end_x) - padding;
-                const min_y = @min(@as(f32, 0), scaled_end_y) - padding;
-                const max_x = @max(@as(f32, 0), scaled_end_x) + padding;
-                const max_y = @max(@as(f32, 0), scaled_end_y) + padding;
-                elem.bounding_box.x = elem.transform.position.x + min_x;
-                elem.bounding_box.y = elem.transform.position.y + min_y;
-                elem.bounding_box.w = max_x - min_x;
-                elem.bounding_box.h = max_y - min_y;
+
+                if (arw.has_midpoint) {
+                    // Bent arrow: compute Bézier AABB
+                    const tail = pos;
+                    const head = Vec2{
+                        .x = pos.x + arw.end_offset.x * scale.x,
+                        .y = pos.y + arw.end_offset.y * scale.y,
+                    };
+                    const mid_world = Vec2{
+                        .x = pos.x + arw.mid_offset.x * scale.x,
+                        .y = pos.y + arw.mid_offset.y * scale.y,
+                    };
+                    const control = math.bezierControlFromMidpoint(tail, mid_world, head);
+                    const aabb = math.bezierQuadraticAABB(tail, control, head);
+                    elem.bounding_box.x = aabb.min_x - padding;
+                    elem.bounding_box.y = aabb.min_y - padding;
+                    elem.bounding_box.w = (aabb.max_x - aabb.min_x) + 2.0 * padding;
+                    elem.bounding_box.h = (aabb.max_y - aabb.min_y) + 2.0 * padding;
+                } else {
+                    // Straight arrow: AABB from endpoints + padding
+                    const scaled_end_x = arw.end_offset.x * scale.x;
+                    const scaled_end_y = arw.end_offset.y * scale.y;
+                    const min_x = @min(@as(f32, 0), scaled_end_x) - padding;
+                    const min_y = @min(@as(f32, 0), scaled_end_y) - padding;
+                    const max_x = @max(@as(f32, 0), scaled_end_x) + padding;
+                    const max_y = @max(@as(f32, 0), scaled_end_y) + padding;
+                    elem.bounding_box.x = pos.x + min_x;
+                    elem.bounding_box.y = pos.y + min_y;
+                    elem.bounding_box.w = max_x - min_x;
+                    elem.bounding_box.h = max_y - min_y;
+                }
             },
         }
     }
@@ -1026,61 +1062,121 @@ pub const SceneGraph = struct {
 
                     _ = c.SDL_SetRenderDrawColor(renderer, arw.color.r, arw.color.g, arw.color.b, arw.color.a);
 
-                    // Calculate direction vector
-                    const dx = screen_end.x - screen_start.x;
-                    const dy = screen_end.y - screen_start.y;
-                    const len = @sqrt(dx * dx + dy * dy);
-                    if (len < 1.0) continue;
-
-                    // Normalized direction and perpendicular
-                    const nx = dx / len;
-                    const ny = dy / len;
-                    const px = -ny; // perpendicular
-                    const py = nx;
-
-                    // Draw thick line shaft using parallel lines
                     const screen_thickness = switch (elem.space) {
                         .world => arw.thickness * cam.zoom,
                         .screen => arw.thickness,
                     };
-                    const half_t = screen_thickness / 2.0;
-                    const line_count: i32 = @max(1, @as(i32, @intFromFloat(screen_thickness)));
-
-                    var li: i32 = 0;
-                    while (li < line_count) : (li += 1) {
-                        const offset = -half_t + @as(f32, @floatFromInt(li));
-                        const x1: i32 = @intFromFloat(screen_start.x + px * offset);
-                        const y1: i32 = @intFromFloat(screen_start.y + py * offset);
-                        const x2: i32 = @intFromFloat(screen_end.x + px * offset);
-                        const y2: i32 = @intFromFloat(screen_end.y + py * offset);
-                        _ = c.SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
-                    }
-
-                    // Draw arrowhead as filled triangle
                     const screen_arrowhead = switch (elem.space) {
                         .world => arw.arrowhead_size * cam.zoom,
                         .screen => arw.arrowhead_size,
                     };
 
-                    // Wing vectors at ±150° from direction (pointing backward)
-                    const angle: f32 = 2.618; // ~150 degrees in radians
-                    const cos_a = @cos(angle);
-                    const sin_a = @sin(angle);
-                    // Wing 1: rotate direction by +150°
-                    const w1x = (nx * cos_a - ny * sin_a) * screen_arrowhead;
-                    const w1y = (nx * sin_a + ny * cos_a) * screen_arrowhead;
-                    // Wing 2: rotate direction by -150°
-                    const w2x = (nx * cos_a + ny * sin_a) * screen_arrowhead;
-                    const w2y = (-nx * sin_a + ny * cos_a) * screen_arrowhead;
+                    if (arw.has_midpoint) {
+                        // BENT ARROW: render as quadratic Bézier curve
+                        const mid_world = Vec2{
+                            .x = start_world.x + arw.mid_offset.x * elem.transform.scale.x,
+                            .y = start_world.y + arw.mid_offset.y * elem.transform.scale.y,
+                        };
+                        const screen_mid = switch (elem.space) {
+                            .world => cam.worldToScreen(mid_world),
+                            .screen => mid_world,
+                        };
+                        const control = math.bezierControlFromMidpoint(screen_start, screen_mid, screen_end);
 
-                    const tip_x: i32 = @intFromFloat(screen_end.x);
-                    const tip_y: i32 = @intFromFloat(screen_end.y);
-                    const wing1_x: i32 = @intFromFloat(screen_end.x + w1x);
-                    const wing1_y: i32 = @intFromFloat(screen_end.y + w1y);
-                    const wing2_x: i32 = @intFromFloat(screen_end.x + w2x);
-                    const wing2_y: i32 = @intFromFloat(screen_end.y + w2y);
+                        const half_t = screen_thickness / 2.0;
+                        const line_count: i32 = @max(1, @as(i32, @intFromFloat(screen_thickness)));
 
-                    drawFilledTriangle(renderer, tip_x, tip_y, wing1_x, wing1_y, wing2_x, wing2_y);
+                        const NUM_SEGMENTS: usize = 32;
+                        var si: usize = 0;
+                        while (si < NUM_SEGMENTS) : (si += 1) {
+                            const t0 = @as(f32, @floatFromInt(si)) / @as(f32, @floatFromInt(NUM_SEGMENTS));
+                            const t1 = @as(f32, @floatFromInt(si + 1)) / @as(f32, @floatFromInt(NUM_SEGMENTS));
+                            const p0 = math.bezierQuadratic(screen_start, control, screen_end, t0);
+                            const p1 = math.bezierQuadratic(screen_start, control, screen_end, t1);
+
+                            // Perpendicular for thickness
+                            const seg_dx = p1.x - p0.x;
+                            const seg_dy = p1.y - p0.y;
+                            const seg_len = @sqrt(seg_dx * seg_dx + seg_dy * seg_dy);
+                            if (seg_len < 0.5) continue;
+                            const spx = -seg_dy / seg_len;
+                            const spy = seg_dx / seg_len;
+
+                            var li: i32 = 0;
+                            while (li < line_count) : (li += 1) {
+                                const offset = -half_t + @as(f32, @floatFromInt(li));
+                                const x1: i32 = @intFromFloat(p0.x + spx * offset);
+                                const y1: i32 = @intFromFloat(p0.y + spy * offset);
+                                const x2: i32 = @intFromFloat(p1.x + spx * offset);
+                                const y2: i32 = @intFromFloat(p1.y + spy * offset);
+                                _ = c.SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+                            }
+                        }
+
+                        // Arrowhead using tangent at t=1
+                        const tangent = math.bezierQuadraticTangent(screen_start, control, screen_end, 1.0);
+                        const tang_len = @sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
+                        if (tang_len > 0.001) {
+                            const tnx = tangent.x / tang_len;
+                            const tny = tangent.y / tang_len;
+                            const angle: f32 = 2.618; // ~150 degrees
+                            const cos_a = @cos(angle);
+                            const sin_a = @sin(angle);
+                            const w1x = (tnx * cos_a - tny * sin_a) * screen_arrowhead;
+                            const w1y = (tnx * sin_a + tny * cos_a) * screen_arrowhead;
+                            const w2x = (tnx * cos_a + tny * sin_a) * screen_arrowhead;
+                            const w2y = (-tnx * sin_a + tny * cos_a) * screen_arrowhead;
+
+                            const tip_x: i32 = @intFromFloat(screen_end.x);
+                            const tip_y: i32 = @intFromFloat(screen_end.y);
+                            const wing1_x: i32 = @intFromFloat(screen_end.x + w1x);
+                            const wing1_y: i32 = @intFromFloat(screen_end.y + w1y);
+                            const wing2_x: i32 = @intFromFloat(screen_end.x + w2x);
+                            const wing2_y: i32 = @intFromFloat(screen_end.y + w2y);
+                            drawFilledTriangle(renderer, tip_x, tip_y, wing1_x, wing1_y, wing2_x, wing2_y);
+                        }
+                    } else {
+                        // STRAIGHT ARROW: existing rendering
+                        const dx = screen_end.x - screen_start.x;
+                        const dy = screen_end.y - screen_start.y;
+                        const len = @sqrt(dx * dx + dy * dy);
+                        if (len < 1.0) continue;
+
+                        const nx = dx / len;
+                        const ny = dy / len;
+                        const px = -ny;
+                        const py = nx;
+
+                        const half_t = screen_thickness / 2.0;
+                        const line_count: i32 = @max(1, @as(i32, @intFromFloat(screen_thickness)));
+
+                        var li: i32 = 0;
+                        while (li < line_count) : (li += 1) {
+                            const offset = -half_t + @as(f32, @floatFromInt(li));
+                            const x1: i32 = @intFromFloat(screen_start.x + px * offset);
+                            const y1: i32 = @intFromFloat(screen_start.y + py * offset);
+                            const x2: i32 = @intFromFloat(screen_end.x + px * offset);
+                            const y2: i32 = @intFromFloat(screen_end.y + py * offset);
+                            _ = c.SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+                        }
+
+                        // Arrowhead
+                        const angle: f32 = 2.618;
+                        const cos_a = @cos(angle);
+                        const sin_a = @sin(angle);
+                        const w1x = (nx * cos_a - ny * sin_a) * screen_arrowhead;
+                        const w1y = (nx * sin_a + ny * cos_a) * screen_arrowhead;
+                        const w2x = (nx * cos_a + ny * sin_a) * screen_arrowhead;
+                        const w2y = (-nx * sin_a + ny * cos_a) * screen_arrowhead;
+
+                        const tip_x: i32 = @intFromFloat(screen_end.x);
+                        const tip_y: i32 = @intFromFloat(screen_end.y);
+                        const wing1_x: i32 = @intFromFloat(screen_end.x + w1x);
+                        const wing1_y: i32 = @intFromFloat(screen_end.y + w1y);
+                        const wing2_x: i32 = @intFromFloat(screen_end.x + w2x);
+                        const wing2_y: i32 = @intFromFloat(screen_end.y + w2y);
+                        drawFilledTriangle(renderer, tip_x, tip_y, wing1_x, wing1_y, wing2_x, wing2_y);
+                    }
                 },
             }
         }

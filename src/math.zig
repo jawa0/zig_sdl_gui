@@ -53,6 +53,66 @@ pub fn clamp(value: f32, min: f32, max: f32) f32 {
     return value;
 }
 
+/// Evaluate a quadratic Bézier curve at parameter t.
+/// P0 and P2 are endpoints; control is the single control point.
+pub fn bezierQuadratic(p0: Vec2, control: Vec2, p2: Vec2, t: f32) Vec2 {
+    const one_t = 1.0 - t;
+    return Vec2{
+        .x = one_t * one_t * p0.x + 2.0 * one_t * t * control.x + t * t * p2.x,
+        .y = one_t * one_t * p0.y + 2.0 * one_t * t * control.y + t * t * p2.y,
+    };
+}
+
+/// Evaluate the tangent (derivative) of a quadratic Bézier at parameter t.
+/// Returns a non-normalized direction vector.
+pub fn bezierQuadraticTangent(p0: Vec2, control: Vec2, p2: Vec2, t: f32) Vec2 {
+    const one_t = 1.0 - t;
+    return Vec2{
+        .x = 2.0 * one_t * (control.x - p0.x) + 2.0 * t * (p2.x - control.x),
+        .y = 2.0 * one_t * (control.y - p0.y) + 2.0 * t * (p2.y - control.y),
+    };
+}
+
+/// Derive the Bézier control point C such that the curve passes through
+/// `mid` at t=0.5. Given endpoints p0 and p2:
+///   C = 2*mid - 0.5*p0 - 0.5*p2
+pub fn bezierControlFromMidpoint(p0: Vec2, mid: Vec2, p2: Vec2) Vec2 {
+    return Vec2{
+        .x = 2.0 * mid.x - 0.5 * p0.x - 0.5 * p2.x,
+        .y = 2.0 * mid.y - 0.5 * p0.y - 0.5 * p2.y,
+    };
+}
+
+/// Compute the axis-aligned bounding box of a quadratic Bézier curve.
+pub fn bezierQuadraticAABB(p0: Vec2, control: Vec2, p2: Vec2) struct { min_x: f32, min_y: f32, max_x: f32, max_y: f32 } {
+    var min_x = @min(p0.x, p2.x);
+    var max_x = @max(p0.x, p2.x);
+    var min_y = @min(p0.y, p2.y);
+    var max_y = @max(p0.y, p2.y);
+
+    // Check extrema: derivative = 0 gives t = (p0 - control) / (p0 - 2*control + p2)
+    const denom_x = p0.x - 2.0 * control.x + p2.x;
+    if (@abs(denom_x) > 0.0001) {
+        const t_x = (p0.x - control.x) / denom_x;
+        if (t_x > 0.0 and t_x < 1.0) {
+            const val = bezierQuadratic(p0, control, p2, t_x);
+            min_x = @min(min_x, val.x);
+            max_x = @max(max_x, val.x);
+        }
+    }
+    const denom_y = p0.y - 2.0 * control.y + p2.y;
+    if (@abs(denom_y) > 0.0001) {
+        const t_y = (p0.y - control.y) / denom_y;
+        if (t_y > 0.0 and t_y < 1.0) {
+            const val = bezierQuadratic(p0, control, p2, t_y);
+            min_y = @min(min_y, val.y);
+            max_y = @max(max_y, val.y);
+        }
+    }
+
+    return .{ .min_x = min_x, .min_y = min_y, .max_x = max_x, .max_y = max_y };
+}
+
 pub const Transform = struct {
     position: Vec2,
     rotation: f32, // radians

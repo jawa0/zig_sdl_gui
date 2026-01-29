@@ -226,6 +226,10 @@ pub const ElementResizeState = struct {
     // Rectangle-specific start dimensions
     start_rect_width: f32 = 0,
     start_rect_height: f32 = 0,
+    // Arrow-specific start midpoint
+    start_mid_offset_x: f32 = 0,
+    start_mid_offset_y: f32 = 0,
+    start_has_midpoint: bool = false,
 };
 
 /// Maximum elements in a resize operation
@@ -305,8 +309,10 @@ pub const ArrowEndpointDragState = struct {
     is_active: bool = false,
     element_id: u32 = 0,
     dragging_head: bool = false, // true = head (end), false = tail (start)
+    dragging_midpoint: bool = false, // true = dragging the midpoint handle
     original_position: Vec2 = Vec2{ .x = 0, .y = 0 },
     original_end_offset: Vec2 = Vec2{ .x = 0, .y = 0 },
+    original_mid_offset: Vec2 = Vec2{ .x = 0, .y = 0 },
 };
 
 /// Handles application actions by updating application state.

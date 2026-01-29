@@ -671,18 +671,26 @@ pub fn main() !void {
                     const selected_ids_for_handles = action_mgr.selection.items();
 
                     if (selected_ids_for_handles.len > 0) {
-                        // Check for single-arrow selection: use endpoint handles instead of bbox handles
+                        // Check for single-arrow selection: use endpoint handles
+                        var is_single_straight_arrow = false;
                         if (selected_ids_for_handles.len == 1) {
                             if (scene_graph.findElement(selected_ids_for_handles[0])) |elem| {
                                 if (elem.element_type == .arrow) {
                                     const arw = &elem.data.arrow;
+                                    if (!arw.has_midpoint) is_single_straight_arrow = true;
                                     const tail_world = elem.transform.position;
                                     const head_world = Vec2{
                                         .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
                                         .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
                                     };
+                                    const eff_mid = arw.effectiveMidOffset();
+                                    const mid_world = Vec2{
+                                        .x = tail_world.x + eff_mid.x * elem.transform.scale.x,
+                                        .y = tail_world.y + eff_mid.y * elem.transform.scale.y,
+                                    };
                                     const tail_screen = cam.worldToScreen(tail_world);
                                     const head_screen = cam.worldToScreen(head_world);
+                                    const mid_screen = cam.worldToScreen(mid_world);
 
                                     const handle_hit_size_arrow: f32 = 12.0;
                                     const isInHandle = struct {
@@ -698,26 +706,40 @@ pub fn main() !void {
                                         action_mgr.arrow_endpoint_drag.is_active = true;
                                         action_mgr.arrow_endpoint_drag.element_id = elem.id;
                                         action_mgr.arrow_endpoint_drag.dragging_head = false;
+                                        action_mgr.arrow_endpoint_drag.dragging_midpoint = false;
                                         action_mgr.arrow_endpoint_drag.original_position = elem.transform.position;
                                         action_mgr.arrow_endpoint_drag.original_end_offset = arw.end_offset;
+                                        action_mgr.arrow_endpoint_drag.original_mid_offset = arw.mid_offset;
                                         handle_clicked = true;
                                     } else if (isInHandle(click_x, click_y, head_screen.x, head_screen.y, handle_hit_size_arrow)) {
                                         // Head handle clicked
                                         action_mgr.arrow_endpoint_drag.is_active = true;
                                         action_mgr.arrow_endpoint_drag.element_id = elem.id;
                                         action_mgr.arrow_endpoint_drag.dragging_head = true;
+                                        action_mgr.arrow_endpoint_drag.dragging_midpoint = false;
                                         action_mgr.arrow_endpoint_drag.original_position = elem.transform.position;
                                         action_mgr.arrow_endpoint_drag.original_end_offset = arw.end_offset;
+                                        action_mgr.arrow_endpoint_drag.original_mid_offset = arw.mid_offset;
+                                        handle_clicked = true;
+                                    } else if (isInHandle(click_x, click_y, mid_screen.x, mid_screen.y, handle_hit_size_arrow)) {
+                                        // Midpoint handle clicked
+                                        action_mgr.arrow_endpoint_drag.is_active = true;
+                                        action_mgr.arrow_endpoint_drag.element_id = elem.id;
+                                        action_mgr.arrow_endpoint_drag.dragging_head = false;
+                                        action_mgr.arrow_endpoint_drag.dragging_midpoint = true;
+                                        action_mgr.arrow_endpoint_drag.original_position = elem.transform.position;
+                                        action_mgr.arrow_endpoint_drag.original_end_offset = arw.end_offset;
+                                        action_mgr.arrow_endpoint_drag.original_mid_offset = arw.mid_offset;
                                         handle_clicked = true;
                                     }
-                                    // If neither handle was clicked, fall through to existing logic
-                                    // which will handle click-on-shaft (drag) or click-off (deselect)
+                                    // If no arrow handle clicked, fall through to existing logic
                                 }
                             }
                         }
 
-                        // Skip union-bbox handle detection if arrow endpoint was already handled
-                        if (!handle_clicked) {
+                        // Skip union-bbox handle detection if arrow endpoint was handled,
+                        // or if this is a straight arrow (no bbox corner handles for straight arrows)
+                        if (!handle_clicked and !is_single_straight_arrow) {
                         // Calculate union bounding box of all selected elements
                         var union_min_x: f32 = std.math.floatMax(f32);
                         var union_min_y: f32 = std.math.floatMax(f32);
@@ -815,6 +837,9 @@ pub fn main() !void {
                                         } else if (elem.element_type == .arrow) {
                                             state.start_rect_width = elem.data.arrow.end_offset.x;
                                             state.start_rect_height = elem.data.arrow.end_offset.y;
+                                            state.start_mid_offset_x = elem.data.arrow.mid_offset.x;
+                                            state.start_mid_offset_y = elem.data.arrow.mid_offset.y;
+                                            state.start_has_midpoint = elem.data.arrow.has_midpoint;
                                         }
                                         action_mgr.resize.element_count += 1;
                                     }
@@ -897,7 +922,7 @@ pub fn main() !void {
                                 }
                             }
                         }
-                        } // end if (!handle_clicked) for union-bbox handles
+                        } // end if (!handle_clicked and !is_single_straight_arrow)
                     }
 
                     // If no handle was clicked, do normal hit test
@@ -1009,24 +1034,29 @@ pub fn main() !void {
                         }
                     }
                 } else if (action_mgr.arrow_endpoint_drag.is_active) {
-                    // Dragging an arrow endpoint (tail or head)
+                    // Dragging an arrow endpoint (tail, head, or midpoint)
                     const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
                     if (scene_graph.findElement(action_mgr.arrow_endpoint_drag.element_id)) |elem| {
                         const orig_pos = action_mgr.arrow_endpoint_drag.original_position;
                         const orig_offset = action_mgr.arrow_endpoint_drag.original_end_offset;
+                        const orig_mid = action_mgr.arrow_endpoint_drag.original_mid_offset;
                         const scale = elem.transform.scale;
 
-                        if (action_mgr.arrow_endpoint_drag.dragging_head) {
+                        if (action_mgr.arrow_endpoint_drag.dragging_midpoint) {
+                            // Midpoint moves to cursor
+                            elem.data.arrow.mid_offset = Vec2{
+                                .x = (current_world.x - elem.transform.position.x) / scale.x,
+                                .y = (current_world.y - elem.transform.position.y) / scale.y,
+                            };
+                            elem.data.arrow.has_midpoint = true;
+                        } else if (action_mgr.arrow_endpoint_drag.dragging_head) {
                             // Head moves to cursor; tail stays fixed
-                            // head_world = position + end_offset * scale
-                            // new end_offset = (current_world - position) / scale
                             elem.data.arrow.end_offset = Vec2{
                                 .x = (current_world.x - orig_pos.x) / scale.x,
                                 .y = (current_world.y - orig_pos.y) / scale.y,
                             };
                         } else {
                             // Tail moves to cursor; head stays fixed
-                            // original head world pos = orig_pos + orig_offset * scale
                             const orig_head_world = Vec2{
                                 .x = orig_pos.x + orig_offset.x * scale.x,
                                 .y = orig_pos.y + orig_offset.y * scale.y,
@@ -1036,6 +1066,17 @@ pub fn main() !void {
                                 .x = (orig_head_world.x - current_world.x) / scale.x,
                                 .y = (orig_head_world.y - current_world.y) / scale.y,
                             };
+                            // Keep midpoint fixed in world space
+                            if (elem.data.arrow.has_midpoint) {
+                                const orig_mid_world = Vec2{
+                                    .x = orig_pos.x + orig_mid.x * scale.x,
+                                    .y = orig_pos.y + orig_mid.y * scale.y,
+                                };
+                                elem.data.arrow.mid_offset = Vec2{
+                                    .x = (orig_mid_world.x - current_world.x) / scale.x,
+                                    .y = (orig_mid_world.y - current_world.y) / scale.y,
+                                };
+                            }
                         }
                         scene_graph.updateElementBoundingBox(elem.id, font);
                     }
@@ -1189,6 +1230,24 @@ pub fn main() !void {
                                     .x = (new_head.x - new_tail.x) / scale.x,
                                     .y = (new_head.y - new_tail.y) / scale.y,
                                 };
+
+                                // Map midpoint proportionally within the bbox
+                                if (elem_state.start_has_midpoint) {
+                                    const orig_mid = Vec2{
+                                        .x = orig_tail.x + elem_state.start_mid_offset_x * scale.x,
+                                        .y = orig_tail.y + elem_state.start_mid_offset_y * scale.y,
+                                    };
+                                    const rel_mid_x = if (bw > 0.001) (orig_mid.x - elem_state.start_bbox_x) / bw else 0.5;
+                                    const rel_mid_y = if (bh > 0.001) (orig_mid.y - elem_state.start_bbox_y) / bh else 0.5;
+                                    const new_mid = Vec2{
+                                        .x = new_bbox_x + rel_mid_x * new_bbox_w,
+                                        .y = new_bbox_y + rel_mid_y * new_bbox_h,
+                                    };
+                                    elem.data.arrow.mid_offset = Vec2{
+                                        .x = (new_mid.x - new_tail.x) / scale.x,
+                                        .y = (new_mid.y - new_tail.y) / scale.y,
+                                    };
+                                }
                             }
                         }
                     }
@@ -1244,29 +1303,50 @@ pub fn main() !void {
                         if (selected_ids.len == 1) {
                             if (scene_graph.findElement(selected_ids[0])) |elem| {
                                 if (elem.element_type == .arrow) {
-                                    arrow_hover_handled = true;
+                                    // For straight arrows, skip bbox hover entirely
+                                    // For bent arrows, only skip if on an arrow handle
                                     const arw = &elem.data.arrow;
                                     const tail_world = elem.transform.position;
                                     const head_world = Vec2{
                                         .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
                                         .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
                                     };
+                                    const eff_mid = arw.effectiveMidOffset();
+                                    const mid_world = Vec2{
+                                        .x = tail_world.x + eff_mid.x * elem.transform.scale.x,
+                                        .y = tail_world.y + eff_mid.y * elem.transform.scale.y,
+                                    };
                                     const tail_screen = cam.worldToScreen(tail_world);
                                     const head_screen = cam.worldToScreen(head_world);
+                                    const mid_screen = cam.worldToScreen(mid_world);
 
                                     const arrow_handle_hit: f32 = 12.0;
                                     const arrow_half = arrow_handle_hit / 2.0;
 
+                                    var on_arrow_handle = false;
                                     if (mouse_x >= tail_screen.x - arrow_half and mouse_x <= tail_screen.x + arrow_half and
                                         mouse_y >= tail_screen.y - arrow_half and mouse_y <= tail_screen.y + arrow_half)
                                     {
                                         desired_cursor = .move;
+                                        on_arrow_handle = true;
                                     } else if (mouse_x >= head_screen.x - arrow_half and mouse_x <= head_screen.x + arrow_half and
                                         mouse_y >= head_screen.y - arrow_half and mouse_y <= head_screen.y + arrow_half)
                                     {
                                         desired_cursor = .move;
+                                        on_arrow_handle = true;
+                                    } else if (mouse_x >= mid_screen.x - arrow_half and mouse_x <= mid_screen.x + arrow_half and
+                                        mouse_y >= mid_screen.y - arrow_half and mouse_y <= mid_screen.y + arrow_half)
+                                    {
+                                        desired_cursor = .move;
+                                        on_arrow_handle = true;
                                     } else if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
                                         desired_cursor = .move;
+                                    }
+
+                                    // Straight arrows skip bbox hover entirely;
+                                    // Bent arrows skip bbox hover only if on an arrow handle
+                                    if (!arw.has_midpoint or on_arrow_handle) {
+                                        arrow_hover_handled = true;
                                     }
                                 }
                             }
@@ -1832,31 +1912,78 @@ pub fn main() !void {
                         .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
                         .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
                     };
+                    const emo = arw.effectiveMidOffset();
+                    const mid_world = Vec2{
+                        .x = tail_world.x + emo.x * elem.transform.scale.x,
+                        .y = tail_world.y + emo.y * elem.transform.scale.y,
+                    };
                     const tail_screen = cam.worldToScreen(tail_world);
                     const head_screen = cam.worldToScreen(head_world);
+                    const mid_screen = cam.worldToScreen(mid_world);
 
+                    // For bent arrows, draw solid selection box + 4 corner handles
+                    if (arw.has_midpoint) {
+                        const world_bbox = elem.bounding_box;
+                        const world_top_left = Vec2{ .x = world_bbox.x, .y = world_bbox.y + world_bbox.h };
+                        const screen_pos = cam.worldToScreen(world_top_left);
+                        const screen_w = world_bbox.w * cam.zoom;
+                        const screen_h = world_bbox.h * cam.zoom;
+
+                        const bx: i32 = @intFromFloat(screen_pos.x);
+                        const by: i32 = @intFromFloat(screen_pos.y);
+                        const bw: i32 = @intFromFloat(screen_w);
+                        const bh: i32 = @intFromFloat(screen_h);
+
+                        // Draw solid selection box
+                        _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                        var bbox_rect = c.SDL_Rect{ .x = bx, .y = by, .w = bw, .h = bh };
+                        _ = c.SDL_RenderDrawRect(renderer, &bbox_rect);
+
+                        // Draw 4 corner resize handles
+                        const corner_handle_size: i32 = 8;
+                        const corner_half: i32 = corner_handle_size / 2;
+
+                        const corners = [4][2]i32{
+                            .{ bx, by }, // top-left
+                            .{ bx + bw, by }, // top-right
+                            .{ bx, by + bh }, // bottom-left
+                            .{ bx + bw, by + bh }, // bottom-right
+                        };
+                        for (corners) |corner| {
+                            var corner_rect = c.SDL_Rect{
+                                .x = corner[0] - corner_half,
+                                .y = corner[1] - corner_half,
+                                .w = corner_handle_size,
+                                .h = corner_handle_size,
+                            };
+                            _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                            _ = c.SDL_RenderFillRect(renderer, &corner_rect);
+                            _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                            _ = c.SDL_RenderDrawRect(renderer, &corner_rect);
+                        }
+                    }
+
+                    // Draw 3 arrow handles (tail, mid, head) for both straight and bent
                     const handle_size: i32 = 8;
                     const handle_half: i32 = handle_size / 2;
 
-                    // Draw tail handle (white fill + blue border)
-                    var handle_rect = c.SDL_Rect{
-                        .x = @as(i32, @intFromFloat(tail_screen.x)) - handle_half,
-                        .y = @as(i32, @intFromFloat(tail_screen.y)) - handle_half,
-                        .w = handle_size,
-                        .h = handle_size,
+                    const arrow_handles = [3][2]f32{
+                        .{ tail_screen.x, tail_screen.y },
+                        .{ mid_screen.x, mid_screen.y },
+                        .{ head_screen.x, head_screen.y },
                     };
-                    _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                    _ = c.SDL_RenderFillRect(renderer, &handle_rect);
-                    _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                    _ = c.SDL_RenderDrawRect(renderer, &handle_rect);
-
-                    // Draw head handle (white fill + blue border)
-                    handle_rect.x = @as(i32, @intFromFloat(head_screen.x)) - handle_half;
-                    handle_rect.y = @as(i32, @intFromFloat(head_screen.y)) - handle_half;
-                    _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
-                    _ = c.SDL_RenderFillRect(renderer, &handle_rect);
-                    _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
-                    _ = c.SDL_RenderDrawRect(renderer, &handle_rect);
+                    for (arrow_handles) |ah| {
+                        var handle_rect = c.SDL_Rect{
+                            .x = @as(i32, @intFromFloat(ah[0])) - handle_half,
+                            .y = @as(i32, @intFromFloat(ah[1])) - handle_half,
+                            .w = handle_size,
+                            .h = handle_size,
+                        };
+                        _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                        _ = c.SDL_RenderFillRect(renderer, &handle_rect);
+                        _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                        _ = c.SDL_RenderDrawRect(renderer, &handle_rect);
+                    }
                 }
             } else {
             // Calculate union bounding box in SCREEN space to avoid floating-point discrepancies
