@@ -12,6 +12,7 @@ const grid = @import("grid.zig");
 const button = @import("button.zig");
 const platform = @import("platform.zig");
 const db = @import("db.zig");
+const clipboard_image = @import("clipboard_image.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -304,6 +305,74 @@ pub fn main() !void {
                     save_db.saveScene(&scene_graph, &cam, action_mgr.scheme_type) catch |err| {
                         std.debug.print("Failed to save scene: {}\n", .{err});
                     };
+                    continue;
+                }
+            }
+
+            // Global image paste shortcut (Ctrl+V / Cmd+V) - only when NOT editing text
+            if (event.type == c.SDL_KEYDOWN and event.key.keysym.scancode == c.SDL_SCANCODE_V and
+                !action_mgr.text_edit.is_editing)
+            {
+                const paste_mod_state = c.SDL_GetModState();
+                const paste_ctrl = (paste_mod_state & c.KMOD_CTRL) != 0;
+                const paste_cmd = (paste_mod_state & c.KMOD_GUI) != 0;
+                const paste_mod = if (platform.use_mac_keybindings) paste_cmd else paste_ctrl;
+                if (paste_mod) {
+                    if (clipboard_image.getClipboardImageData(allocator)) |image_data| {
+                        const rw = c.SDL_RWFromConstMem(@ptrCast(image_data.ptr), @intCast(image_data.len));
+                        if (rw) |rwops| {
+                            if (c.IMG_Load_RW(rwops, 1)) |surface| {
+                                defer c.SDL_FreeSurface(surface);
+                                if (c.SDL_CreateTextureFromSurface(renderer, surface)) |texture| {
+                                    _ = c.SDL_SetTextureScaleMode(texture, c.SDL_ScaleModeLinear);
+                                    _ = c.SDL_SetTextureBlendMode(texture, c.SDL_BLENDMODE_BLEND);
+
+                                    const img_w: f32 = @floatFromInt(surface.*.w);
+                                    const img_h: f32 = @floatFromInt(surface.*.h);
+
+                                    const filename = allocator.dupe(u8, "clipboard_paste.png") catch {
+                                        allocator.free(image_data);
+                                        c.SDL_DestroyTexture(texture);
+                                        continue;
+                                    };
+
+                                    // Place at center of current viewport
+                                    const center_x = cam.position.x - img_w / 2.0;
+                                    const center_y = cam.position.y + img_h / 2.0;
+
+                                    scene_graph.image_textures.append(scene_graph.allocator, texture) catch {
+                                        c.SDL_DestroyTexture(texture);
+                                        allocator.free(image_data);
+                                        allocator.free(filename);
+                                        continue;
+                                    };
+
+                                    const new_id = scene_graph.addImage(
+                                        texture,
+                                        Vec2{ .x = center_x, .y = center_y },
+                                        img_w,
+                                        img_h,
+                                        image_data,
+                                        filename,
+                                        .world,
+                                    ) catch continue;
+
+                                    // Select the new image and switch to selection tool
+                                    action_mgr.selection.clear();
+                                    action_mgr.selection.add(new_id);
+                                    action_mgr.current_tool = .selection;
+                                    if (cursor_arrow != null) c.SDL_SetCursor(cursor_arrow);
+                                    current_cursor = .arrow;
+                                } else {
+                                    allocator.free(image_data);
+                                }
+                            } else {
+                                allocator.free(image_data);
+                            }
+                        } else {
+                            allocator.free(image_data);
+                        }
+                    }
                     continue;
                 }
             }
