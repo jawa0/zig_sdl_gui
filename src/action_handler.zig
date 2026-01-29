@@ -321,6 +321,7 @@ pub const ArrowEndpointDragState = struct {
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
     should_quit: bool = false,
+    should_delete_selected: bool = false,
     scheme_type: SchemeType = .light,
     scheme_changed: bool = false,
     grid_visible: bool = true,
@@ -344,6 +345,7 @@ pub const ActionHandler = struct {
     pub fn handle(self: *ActionHandler, params: ActionParams, cam: *Camera) bool {
         // Reset flags at start of each frame
         self.scheme_changed = false;
+        self.should_delete_selected = false;
         self.text_edit.should_create_element = false;
 
         switch (params) {
@@ -487,6 +489,12 @@ pub const ActionHandler = struct {
                         }
                         c.SDL_free(@ptrCast(ptr));
                     }
+                }
+            },
+
+            .delete_selected => {
+                if (!self.selection.isEmpty()) {
+                    self.should_delete_selected = true;
                 }
             },
         }

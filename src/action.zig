@@ -24,6 +24,7 @@ pub const Action = enum {
     copy_text,
     cut_text,
     paste_text,
+    delete_selected,
     // Future actions can be added here without changing input handling code
 };
 
@@ -49,6 +50,7 @@ pub const ActionParams = union(Action) {
     copy_text: void,
     cut_text: void,
     paste_text: void,
+    delete_selected: void,
 };
 
 pub const PanParams = struct {

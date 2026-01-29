@@ -57,6 +57,11 @@ pub const InputState = struct {
                     if (event.key.keysym.scancode == c.SDL_SCANCODE_B) {
                         return ActionParams{ .toggle_bounding_boxes = {} };
                     }
+                    if (event.key.keysym.scancode == c.SDL_SCANCODE_DELETE or
+                        event.key.keysym.scancode == c.SDL_SCANCODE_BACKSPACE)
+                    {
+                        return ActionParams{ .delete_selected = {} };
+                    }
                 }
             },
 

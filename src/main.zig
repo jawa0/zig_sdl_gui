@@ -1769,6 +1769,15 @@ pub fn main() !void {
             action_mgr.text_edit.finished_element_id = null;
         }
 
+        // Delete selected elements if requested
+        if (action_mgr.should_delete_selected) {
+            for (action_mgr.selection.items()) |elem_id| {
+                _ = scene_graph.removeElement(elem_id);
+            }
+            action_mgr.selection.clear();
+            action_mgr.should_delete_selected = false;
+        }
+
         // Update FPS counter
         frame_count += 1;
         const elapsed = c.SDL_GetTicks() - fps_timer;
