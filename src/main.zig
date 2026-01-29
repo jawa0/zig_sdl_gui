@@ -1618,7 +1618,11 @@ pub fn main() !void {
                 } else if (action_mgr.drag.is_dragging) {
                     if (action_mgr.drag.has_moved) {
                         undo_history.endOperation();
-                    } else {
+                    } else if (!action_mgr.text_edit.is_editing) {
+                        // Only cancel if text editing hasn't started — a double-click
+                        // triggers both a drag start and text edit begin on the same
+                        // mousedown event, so the drag's pending snapshot is the correct
+                        // pre-edit state that the text edit operation needs.
                         undo_history.cancelOperation();
                     }
                     _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
