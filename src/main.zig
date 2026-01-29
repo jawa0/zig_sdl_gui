@@ -1156,9 +1156,39 @@ pub fn main() !void {
                                 elem.data.image.width = elem_state.start_rect_width * sx;
                                 elem.data.image.height = elem_state.start_rect_height * sy;
                             } else if (elem.element_type == .arrow) {
-                                // Arrow uses uniform scale to maintain angle
-                                elem.data.arrow.end_offset.x = elem_state.start_rect_width * uniform_scale;
-                                elem.data.arrow.end_offset.y = elem_state.start_rect_height * uniform_scale;
+                                // For arrows, transform.position is the tail (start point),
+                                // NOT the top-left of the bbox. Override the generic position
+                                // by mapping tail and head proportionally within the scaled bbox.
+                                const scale = elem.transform.scale;
+                                const orig_tail = elem_state.start_pos;
+                                const orig_head = Vec2{
+                                    .x = orig_tail.x + elem_state.start_rect_width * scale.x,
+                                    .y = orig_tail.y + elem_state.start_rect_height * scale.y,
+                                };
+
+                                // Fractional positions of tail and head within original bbox
+                                const bw = elem_state.start_bbox_w;
+                                const bh = elem_state.start_bbox_h;
+                                const rel_tail_x = if (bw > 0.001) (orig_tail.x - elem_state.start_bbox_x) / bw else 0.5;
+                                const rel_tail_y = if (bh > 0.001) (orig_tail.y - elem_state.start_bbox_y) / bh else 0.5;
+                                const rel_head_x = if (bw > 0.001) (orig_head.x - elem_state.start_bbox_x) / bw else 0.5;
+                                const rel_head_y = if (bh > 0.001) (orig_head.y - elem_state.start_bbox_y) / bh else 0.5;
+
+                                // Map to new bbox
+                                const new_tail = Vec2{
+                                    .x = new_bbox_x + rel_tail_x * new_bbox_w,
+                                    .y = new_bbox_y + rel_tail_y * new_bbox_h,
+                                };
+                                const new_head = Vec2{
+                                    .x = new_bbox_x + rel_head_x * new_bbox_w,
+                                    .y = new_bbox_y + rel_head_y * new_bbox_h,
+                                };
+
+                                elem.transform.position = new_tail;
+                                elem.data.arrow.end_offset = Vec2{
+                                    .x = (new_head.x - new_tail.x) / scale.x,
+                                    .y = (new_head.y - new_tail.y) / scale.y,
+                                };
                             }
                         }
                     }

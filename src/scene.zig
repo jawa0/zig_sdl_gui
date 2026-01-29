@@ -56,8 +56,8 @@ pub const ElementType = enum {
     /// the entire selection must scale uniformly to preserve relative positioning.
     pub fn canScaleNonUniform(self: ElementType) bool {
         return switch (self) {
-            .rectangle, .image => true,
-            .text_label, .arrow => false,
+            .rectangle, .image, .arrow => true,
+            .text_label => false,
         };
     }
 };
@@ -1615,9 +1615,10 @@ test "Single line text vs multiline text bounding boxes" {
 }
 
 test "ElementType.canScaleNonUniform returns correct values" {
-    // Rectangles and images can scale non-uniformly (stretch in width or height independently)
+    // Rectangles, images, and arrows can scale non-uniformly
     try expect(ElementType.rectangle.canScaleNonUniform());
     try expect(ElementType.image.canScaleNonUniform());
+    try expect(ElementType.arrow.canScaleNonUniform());
 
     // Text cannot scale non-uniformly (must maintain aspect ratio)
     try expect(!ElementType.text_label.canScaleNonUniform());
