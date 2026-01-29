@@ -13,6 +13,7 @@ const button = @import("button.zig");
 const platform = @import("platform.zig");
 const db = @import("db.zig");
 const clipboard_image = @import("clipboard_image.zig");
+const undo_mod = @import("undo.zig");
 
 const Vec2 = math.Vec2;
 const Camera = camera.Camera;
@@ -249,6 +250,10 @@ pub fn main() !void {
     var input_state = InputState.init();
     var action_mgr = ActionHandler.init();
 
+    // Initialize undo history
+    var undo_history = undo_mod.UndoHistory.init(allocator);
+    defer undo_history.deinit();
+
     // Get current color scheme
     var colors = ColorScheme.get(action_mgr.scheme_type);
 
@@ -347,6 +352,7 @@ pub fn main() !void {
                                         continue;
                                     };
 
+                                    undo_history.recordAtomicBefore(&scene_graph);
                                     const new_id = scene_graph.addImage(
                                         texture,
                                         Vec2{ .x = center_x, .y = center_y },
@@ -374,6 +380,44 @@ pub fn main() !void {
                         }
                     }
                     continue;
+                }
+            }
+
+            // Global undo/redo shortcuts (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y)
+            if (event.type == c.SDL_KEYDOWN and !action_mgr.text_edit.is_editing) {
+                const undo_mod_state = c.SDL_GetModState();
+                const undo_ctrl = (undo_mod_state & c.KMOD_CTRL) != 0;
+                const undo_cmd = (undo_mod_state & c.KMOD_GUI) != 0;
+                const undo_modifier = if (platform.use_mac_keybindings) undo_cmd else undo_ctrl;
+                const undo_shift = (undo_mod_state & c.KMOD_SHIFT) != 0;
+
+                if (undo_modifier) {
+                    // Block during active multi-frame operations
+                    const in_operation = action_mgr.drag.is_dragging or
+                        action_mgr.resize.is_resizing or
+                        action_mgr.arrow_endpoint_drag.is_active or
+                        action_mgr.rect_create.is_active or
+                        action_mgr.arrow_create.is_active;
+
+                    if (!in_operation) {
+                        if (event.key.keysym.scancode == c.SDL_SCANCODE_Z) {
+                            if (undo_shift) {
+                                // Redo (Ctrl+Shift+Z)
+                                _ = undo_history.redo(&scene_graph);
+                            } else {
+                                // Undo (Ctrl+Z)
+                                _ = undo_history.undo(&scene_graph);
+                            }
+                            action_mgr.selection.clear();
+                            continue;
+                        }
+                        if (event.key.keysym.scancode == c.SDL_SCANCODE_Y) {
+                            // Redo (Ctrl+Y)
+                            _ = undo_history.redo(&scene_graph);
+                            action_mgr.selection.clear();
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -824,6 +868,7 @@ pub fn main() !void {
 
                                     if (isInHandle(click_x, click_y, tail_screen.x, tail_screen.y, handle_hit_size_arrow)) {
                                         // Tail handle clicked
+                                        undo_history.beginOperation(&scene_graph);
                                         action_mgr.arrow_endpoint_drag.is_active = true;
                                         action_mgr.arrow_endpoint_drag.element_id = elem.id;
                                         action_mgr.arrow_endpoint_drag.dragging_head = false;
@@ -834,6 +879,7 @@ pub fn main() !void {
                                         handle_clicked = true;
                                     } else if (isInHandle(click_x, click_y, head_screen.x, head_screen.y, handle_hit_size_arrow)) {
                                         // Head handle clicked
+                                        undo_history.beginOperation(&scene_graph);
                                         action_mgr.arrow_endpoint_drag.is_active = true;
                                         action_mgr.arrow_endpoint_drag.element_id = elem.id;
                                         action_mgr.arrow_endpoint_drag.dragging_head = true;
@@ -844,6 +890,7 @@ pub fn main() !void {
                                         handle_clicked = true;
                                     } else if (isInHandle(click_x, click_y, mid_screen.x, mid_screen.y, handle_hit_size_arrow)) {
                                         // Midpoint handle clicked
+                                        undo_history.beginOperation(&scene_graph);
                                         action_mgr.arrow_endpoint_drag.is_active = true;
                                         action_mgr.arrow_endpoint_drag.element_id = elem.id;
                                         action_mgr.arrow_endpoint_drag.dragging_head = false;
@@ -908,6 +955,7 @@ pub fn main() !void {
 
                         if (clicked_handle) |resize_handle| {
                             // Start resize operation
+                            undo_history.beginOperation(&scene_graph);
                             action_mgr.resize.is_resizing = true;
                             action_mgr.resize.handle = resize_handle;
                             action_mgr.resize.start_world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
@@ -1017,6 +1065,7 @@ pub fn main() !void {
                                     handle_clicked = true;
                                 } else {
                                     // Normal click: start dragging all selected elements
+                                    undo_history.beginOperation(&scene_graph);
                                     const alt_held = (mod_state & c.KMOD_ALT) != 0;
                                     action_mgr.drag.is_dragging = true;
                                     action_mgr.drag.start_world_pos = world_pos;
@@ -1057,6 +1106,7 @@ pub fn main() !void {
 
                             // Only start dragging if not shift+clicking (shift is for selection only)
                             if (!shift_held) {
+                                undo_history.beginOperation(&scene_graph);
                                 const alt_held = (mod_state & c.KMOD_ALT) != 0;
                                 const world_pos = cam.screenToWorld(Vec2{ .x = click_x, .y = click_y });
                                 action_mgr.drag.is_dragging = true;
@@ -1564,9 +1614,16 @@ pub fn main() !void {
             if (event.type == c.SDL_MOUSEBUTTONUP and event.button.button == c.SDL_BUTTON_LEFT) {
                 if (action_mgr.arrow_endpoint_drag.is_active) {
                     action_mgr.arrow_endpoint_drag.is_active = false;
+                    undo_history.endOperation();
                 } else if (action_mgr.drag.is_dragging) {
+                    if (action_mgr.drag.has_moved) {
+                        undo_history.endOperation();
+                    } else {
+                        undo_history.cancelOperation();
+                    }
                     _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
                 } else if (action_mgr.resize.is_resizing) {
+                    undo_history.endOperation();
                     _ = action_mgr.handle(action.ActionParams{ .end_resize_element = {} }, &cam);
                 } else if (action_mgr.rect_create.is_active) {
                     // Finish rectangle creation
@@ -1577,6 +1634,7 @@ pub fn main() !void {
 
                     // Only create rectangle if it has some size (avoid tiny/accidental clicks)
                     if (width > 5 and height > 5) {
+                        undo_history.recordAtomicBefore(&scene_graph);
                         const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
                         // Position is at top-left in world space (max_y is top in Y-up)
                         const new_id = scene_graph.addRectangle(
@@ -1609,6 +1667,7 @@ pub fn main() !void {
                     // Only create arrow if it has some length (avoid tiny/accidental clicks)
                     const arrow_len = @sqrt(end_offset.x * end_offset.x + end_offset.y * end_offset.y);
                     if (arrow_len > 5) {
+                        undo_history.recordAtomicBefore(&scene_graph);
                         const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
                         const new_id = scene_graph.addArrow(
                             start,
@@ -1670,6 +1729,7 @@ pub fn main() !void {
                             continue;
                         };
 
+                        undo_history.recordAtomicBefore(&scene_graph);
                         const new_id = scene_graph.addImage(
                             texture,
                             Vec2{ .x = center_x, .y = center_y },
@@ -1703,6 +1763,7 @@ pub fn main() !void {
                         if (action_mgr.text_edit.is_editing) {
                             action_mgr.text_edit.finishEditing();
                             c.SDL_StopTextInput();
+                            undo_history.endOperation();
 
                             // Process pending element updates immediately
                             if (action_mgr.text_edit.should_update_element) {
@@ -1744,6 +1805,7 @@ pub fn main() !void {
                             if (scene_graph.findElement(elem_id)) |elem| {
                                 if (elem.element_type == .text_label) {
                                     // Start editing this text element
+                                    undo_history.beginOperation(&scene_graph);
                                     const text = elem.data.text_label.text;
                                     action_mgr.text_edit.startEditingElement(elem_id, elem.transform.position, elem.data.text_label.font_size, text);
                                     action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
@@ -1767,6 +1829,11 @@ pub fn main() !void {
 
                 // Process the action
                 if (should_process) {
+                    // Begin undo operation for new text creation on blank canvas
+                    switch (action_params) {
+                        .begin_text_edit => undo_history.beginOperation(&scene_graph),
+                        else => {},
+                    }
                     if (action_mgr.handle(action_params, &cam)) {
                         running = false;
                     }
@@ -1803,6 +1870,7 @@ pub fn main() !void {
 
         // Create text element if editing just finished with non-empty text
         if (action_mgr.text_edit.should_create_element) {
+            undo_history.endOperation();
             const text = action_mgr.text_edit.finished_text_buffer[0..action_mgr.text_edit.finished_text_len];
             _ = try scene_graph.addTextLabel(
                 text,
@@ -1817,6 +1885,7 @@ pub fn main() !void {
 
         // Update existing text element if editing finished
         if (action_mgr.text_edit.should_update_element) {
+            undo_history.endOperation();
             if (action_mgr.text_edit.finished_element_id) |elem_id| {
                 // Remove the old element
                 _ = scene_graph.removeElement(elem_id);
@@ -1840,6 +1909,7 @@ pub fn main() !void {
 
         // Delete selected elements if requested
         if (action_mgr.should_delete_selected) {
+            undo_history.recordAtomicBefore(&scene_graph);
             for (action_mgr.selection.items()) |elem_id| {
                 _ = scene_graph.removeElement(elem_id);
             }
