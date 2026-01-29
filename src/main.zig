@@ -671,6 +671,53 @@ pub fn main() !void {
                     const selected_ids_for_handles = action_mgr.selection.items();
 
                     if (selected_ids_for_handles.len > 0) {
+                        // Check for single-arrow selection: use endpoint handles instead of bbox handles
+                        if (selected_ids_for_handles.len == 1) {
+                            if (scene_graph.findElement(selected_ids_for_handles[0])) |elem| {
+                                if (elem.element_type == .arrow) {
+                                    const arw = &elem.data.arrow;
+                                    const tail_world = elem.transform.position;
+                                    const head_world = Vec2{
+                                        .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
+                                        .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
+                                    };
+                                    const tail_screen = cam.worldToScreen(tail_world);
+                                    const head_screen = cam.worldToScreen(head_world);
+
+                                    const handle_hit_size_arrow: f32 = 12.0;
+                                    const isInHandle = struct {
+                                        fn check(px: f32, py: f32, hx: f32, hy: f32, size: f32) bool {
+                                            const half_s = size / 2.0;
+                                            return px >= hx - half_s and px <= hx + half_s and
+                                                py >= hy - half_s and py <= hy + half_s;
+                                        }
+                                    }.check;
+
+                                    if (isInHandle(click_x, click_y, tail_screen.x, tail_screen.y, handle_hit_size_arrow)) {
+                                        // Tail handle clicked
+                                        action_mgr.arrow_endpoint_drag.is_active = true;
+                                        action_mgr.arrow_endpoint_drag.element_id = elem.id;
+                                        action_mgr.arrow_endpoint_drag.dragging_head = false;
+                                        action_mgr.arrow_endpoint_drag.original_position = elem.transform.position;
+                                        action_mgr.arrow_endpoint_drag.original_end_offset = arw.end_offset;
+                                        handle_clicked = true;
+                                    } else if (isInHandle(click_x, click_y, head_screen.x, head_screen.y, handle_hit_size_arrow)) {
+                                        // Head handle clicked
+                                        action_mgr.arrow_endpoint_drag.is_active = true;
+                                        action_mgr.arrow_endpoint_drag.element_id = elem.id;
+                                        action_mgr.arrow_endpoint_drag.dragging_head = true;
+                                        action_mgr.arrow_endpoint_drag.original_position = elem.transform.position;
+                                        action_mgr.arrow_endpoint_drag.original_end_offset = arw.end_offset;
+                                        handle_clicked = true;
+                                    }
+                                    // If neither handle was clicked, fall through to existing logic
+                                    // which will handle click-on-shaft (drag) or click-off (deselect)
+                                }
+                            }
+                        }
+
+                        // Skip union-bbox handle detection if arrow endpoint was already handled
+                        if (!handle_clicked) {
                         // Calculate union bounding box of all selected elements
                         var union_min_x: f32 = std.math.floatMax(f32);
                         var union_min_y: f32 = std.math.floatMax(f32);
@@ -850,6 +897,7 @@ pub fn main() !void {
                                 }
                             }
                         }
+                        } // end if (!handle_clicked) for union-bbox handles
                     }
 
                     // If no handle was clicked, do normal hit test
@@ -959,6 +1007,43 @@ pub fn main() !void {
                             elem.bounding_box.x = elem_state.start_bbox_x + delta.x;
                             elem.bounding_box.y = elem_state.start_bbox_y + delta.y;
                         }
+                    }
+                } else if (action_mgr.arrow_endpoint_drag.is_active) {
+                    // Dragging an arrow endpoint (tail or head)
+                    const current_world = cam.screenToWorld(Vec2{ .x = mouse_x, .y = mouse_y });
+                    if (scene_graph.findElement(action_mgr.arrow_endpoint_drag.element_id)) |elem| {
+                        const orig_pos = action_mgr.arrow_endpoint_drag.original_position;
+                        const orig_offset = action_mgr.arrow_endpoint_drag.original_end_offset;
+                        const scale = elem.transform.scale;
+
+                        if (action_mgr.arrow_endpoint_drag.dragging_head) {
+                            // Head moves to cursor; tail stays fixed
+                            // head_world = position + end_offset * scale
+                            // new end_offset = (current_world - position) / scale
+                            elem.data.arrow.end_offset = Vec2{
+                                .x = (current_world.x - orig_pos.x) / scale.x,
+                                .y = (current_world.y - orig_pos.y) / scale.y,
+                            };
+                        } else {
+                            // Tail moves to cursor; head stays fixed
+                            // original head world pos = orig_pos + orig_offset * scale
+                            const orig_head_world = Vec2{
+                                .x = orig_pos.x + orig_offset.x * scale.x,
+                                .y = orig_pos.y + orig_offset.y * scale.y,
+                            };
+                            elem.transform.position = current_world;
+                            elem.data.arrow.end_offset = Vec2{
+                                .x = (orig_head_world.x - current_world.x) / scale.x,
+                                .y = (orig_head_world.y - current_world.y) / scale.y,
+                            };
+                        }
+                        scene_graph.updateElementBoundingBox(elem.id, font);
+                    }
+
+                    // Set move cursor while dragging endpoint
+                    if (current_cursor != .move) {
+                        if (cursor_move != null) c.SDL_SetCursor(cursor_move);
+                        current_cursor = .move;
                     }
                 } else if (action_mgr.resize.is_resizing) {
                     // Set appropriate cursor for the resize handle being dragged
@@ -1124,6 +1209,40 @@ pub fn main() !void {
                     // First, check if hovering over resize handles (takes priority)
                     const selected_ids = action_mgr.selection.items();
                     if (selected_ids.len > 0) {
+                        // Check for single-arrow selection: use endpoint handle hover
+                        var arrow_hover_handled = false;
+                        if (selected_ids.len == 1) {
+                            if (scene_graph.findElement(selected_ids[0])) |elem| {
+                                if (elem.element_type == .arrow) {
+                                    arrow_hover_handled = true;
+                                    const arw = &elem.data.arrow;
+                                    const tail_world = elem.transform.position;
+                                    const head_world = Vec2{
+                                        .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
+                                        .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
+                                    };
+                                    const tail_screen = cam.worldToScreen(tail_world);
+                                    const head_screen = cam.worldToScreen(head_world);
+
+                                    const arrow_handle_hit: f32 = 12.0;
+                                    const arrow_half = arrow_handle_hit / 2.0;
+
+                                    if (mouse_x >= tail_screen.x - arrow_half and mouse_x <= tail_screen.x + arrow_half and
+                                        mouse_y >= tail_screen.y - arrow_half and mouse_y <= tail_screen.y + arrow_half)
+                                    {
+                                        desired_cursor = .move;
+                                    } else if (mouse_x >= head_screen.x - arrow_half and mouse_x <= head_screen.x + arrow_half and
+                                        mouse_y >= head_screen.y - arrow_half and mouse_y <= head_screen.y + arrow_half)
+                                    {
+                                        desired_cursor = .move;
+                                    } else if (elem.bounding_box.containsWorld(world_pos.x, world_pos.y)) {
+                                        desired_cursor = .move;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!arrow_hover_handled) {
                         // Calculate union bounding box
                         var union_min_x: f32 = std.math.floatMax(f32);
                         var union_min_y: f32 = std.math.floatMax(f32);
@@ -1180,6 +1299,7 @@ pub fn main() !void {
                         {
                             desired_cursor = .move;
                         }
+                        } // end if (!arrow_hover_handled)
                     }
 
                     // If not over selection, check if hovering over any element's bounding box
@@ -1211,7 +1331,9 @@ pub fn main() !void {
 
             // Handle mouse button up to end drag/resize/drag-select/rectangle creation
             if (event.type == c.SDL_MOUSEBUTTONUP and event.button.button == c.SDL_BUTTON_LEFT) {
-                if (action_mgr.drag.is_dragging) {
+                if (action_mgr.arrow_endpoint_drag.is_active) {
+                    action_mgr.arrow_endpoint_drag.is_active = false;
+                } else if (action_mgr.drag.is_dragging) {
                     _ = action_mgr.handle(action.ActionParams{ .end_drag_element = {} }, &cam);
                 } else if (action_mgr.resize.is_resizing) {
                     _ = action_mgr.handle(action.ActionParams{ .end_resize_element = {} }, &cam);
@@ -1664,6 +1786,49 @@ pub fn main() !void {
         const white = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
 
         if (selected_ids.len > 0) {
+            // Single-arrow selection: draw 2 endpoint handles instead of bounding box + 4 corner handles
+            const is_single_arrow = if (selected_ids.len == 1) blk: {
+                if (scene_graph.findElement(selected_ids[0])) |elem| {
+                    break :blk elem.element_type == .arrow;
+                }
+                break :blk false;
+            } else false;
+
+            if (is_single_arrow) {
+                if (scene_graph.findElement(selected_ids[0])) |elem| {
+                    const arw = &elem.data.arrow;
+                    const tail_world = elem.transform.position;
+                    const head_world = Vec2{
+                        .x = tail_world.x + arw.end_offset.x * elem.transform.scale.x,
+                        .y = tail_world.y + arw.end_offset.y * elem.transform.scale.y,
+                    };
+                    const tail_screen = cam.worldToScreen(tail_world);
+                    const head_screen = cam.worldToScreen(head_world);
+
+                    const handle_size: i32 = 8;
+                    const handle_half: i32 = handle_size / 2;
+
+                    // Draw tail handle (white fill + blue border)
+                    var handle_rect = c.SDL_Rect{
+                        .x = @as(i32, @intFromFloat(tail_screen.x)) - handle_half,
+                        .y = @as(i32, @intFromFloat(tail_screen.y)) - handle_half,
+                        .w = handle_size,
+                        .h = handle_size,
+                    };
+                    _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                    _ = c.SDL_RenderFillRect(renderer, &handle_rect);
+                    _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                    _ = c.SDL_RenderDrawRect(renderer, &handle_rect);
+
+                    // Draw head handle (white fill + blue border)
+                    handle_rect.x = @as(i32, @intFromFloat(head_screen.x)) - handle_half;
+                    handle_rect.y = @as(i32, @intFromFloat(head_screen.y)) - handle_half;
+                    _ = c.SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, white.a);
+                    _ = c.SDL_RenderFillRect(renderer, &handle_rect);
+                    _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
+                    _ = c.SDL_RenderDrawRect(renderer, &handle_rect);
+                }
+            } else {
             // Calculate union bounding box in SCREEN space to avoid floating-point discrepancies
             // This ensures the union edges exactly match individual element edges
             var union_screen_min_x: i32 = std.math.maxInt(i32);
@@ -1786,6 +1951,7 @@ pub fn main() !void {
             _ = c.SDL_RenderFillRect(renderer, &handle);
             _ = c.SDL_SetRenderDrawColor(renderer, selection_color.r, selection_color.g, selection_color.b, selection_color.a);
             _ = c.SDL_RenderDrawRect(renderer, &handle);
+            } // end else (non-arrow selection rendering)
         }
 
         // Render text editing cursor if in edit mode

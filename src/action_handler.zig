@@ -300,6 +300,15 @@ pub const ArrowCreateState = struct {
     current_world: Vec2 = Vec2{ .x = 0, .y = 0 },
 };
 
+/// Arrow endpoint drag state (dragging tail or head of a selected arrow)
+pub const ArrowEndpointDragState = struct {
+    is_active: bool = false,
+    element_id: u32 = 0,
+    dragging_head: bool = false, // true = head (end), false = tail (start)
+    original_position: Vec2 = Vec2{ .x = 0, .y = 0 },
+    original_end_offset: Vec2 = Vec2{ .x = 0, .y = 0 },
+};
+
 /// Handles application actions by updating application state.
 /// This provides the indirection layer between actions and their implementation.
 pub const ActionHandler = struct {
@@ -316,6 +325,7 @@ pub const ActionHandler = struct {
     drag_select: DragSelectState = DragSelectState{},
     rect_create: RectangleCreateState = RectangleCreateState{},
     arrow_create: ArrowCreateState = ArrowCreateState{},
+    arrow_endpoint_drag: ArrowEndpointDragState = ArrowEndpointDragState{},
 
     pub fn init() ActionHandler {
         return ActionHandler{};
