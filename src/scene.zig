@@ -1816,3 +1816,203 @@ test "SceneGraph.cloneElement preserves bounding box" {
     try expectEqual(orig.bounding_box.w, clone.bounding_box.w);
     try expectEqual(orig.bounding_box.h, clone.bounding_box.h);
 }
+
+// Arrow Tests
+
+test "SceneGraph.addArrow returns unique ID and stores data" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const id = try scene.addArrow(
+        Vec2{ .x = 10, .y = 20 },
+        Vec2{ .x = 100, .y = 50 },
+        3.0,
+        12.0,
+        black,
+        .world,
+    );
+
+    const elem = scene.findElement(id).?;
+    try expectEqual(ElementType.arrow, elem.element_type);
+    try expectEqual(@as(f32, 10), elem.transform.position.x);
+    try expectEqual(@as(f32, 20), elem.transform.position.y);
+    try expectEqual(@as(f32, 100), elem.data.arrow.end_offset.x);
+    try expectEqual(@as(f32, 50), elem.data.arrow.end_offset.y);
+    try expectEqual(@as(f32, 3.0), elem.data.arrow.thickness);
+    try expectEqual(@as(f32, 12.0), elem.data.arrow.arrowhead_size);
+}
+
+test "SceneGraph.addArrow initializes midpoint to center" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const id = try scene.addArrow(
+        Vec2{ .x = 0, .y = 0 },
+        Vec2{ .x = 200, .y = 80 },
+        2.0,
+        10.0,
+        black,
+        .world,
+    );
+
+    const elem = scene.findElement(id).?;
+    const arw = &elem.data.arrow;
+
+    // mid_offset should be half of end_offset
+    try expectEqual(@as(f32, 100), arw.mid_offset.x);
+    try expectEqual(@as(f32, 40), arw.mid_offset.y);
+    try expect(!arw.has_midpoint);
+}
+
+test "Arrow.effectiveMidOffset returns center when has_midpoint is false" {
+    const arw = Arrow{
+        .end_offset = Vec2{ .x = 200, .y = 100 },
+        .mid_offset = Vec2{ .x = 999, .y = 999 }, // should be ignored
+        .has_midpoint = false,
+        .thickness = 2.0,
+        .arrowhead_size = 10.0,
+        .color = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    };
+
+    const emo = arw.effectiveMidOffset();
+    // Should return end_offset / 2, ignoring mid_offset
+    try expectEqual(@as(f32, 100), emo.x);
+    try expectEqual(@as(f32, 50), emo.y);
+}
+
+test "Arrow.effectiveMidOffset returns mid_offset when has_midpoint is true" {
+    const arw = Arrow{
+        .end_offset = Vec2{ .x = 200, .y = 100 },
+        .mid_offset = Vec2{ .x = 50, .y = 80 },
+        .has_midpoint = true,
+        .thickness = 2.0,
+        .arrowhead_size = 10.0,
+        .color = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    };
+
+    const emo = arw.effectiveMidOffset();
+    try expectEqual(@as(f32, 50), emo.x);
+    try expectEqual(@as(f32, 80), emo.y);
+}
+
+test "SceneGraph.cloneElement clones arrow with midpoint" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const orig_id = try scene.addArrow(
+        Vec2{ .x = 10, .y = 20 },
+        Vec2{ .x = 100, .y = 50 },
+        3.0,
+        12.0,
+        black,
+        .world,
+    );
+
+    // Simulate setting a custom midpoint
+    const orig = scene.findElement(orig_id).?;
+    orig.data.arrow.mid_offset = Vec2{ .x = 30, .y = 60 };
+    orig.data.arrow.has_midpoint = true;
+
+    const clone_id = (try scene.cloneElement(orig_id)).?;
+    try expect(clone_id != orig_id);
+
+    const clone = scene.findElement(clone_id).?;
+    try expectEqual(ElementType.arrow, clone.element_type);
+    try expectEqual(@as(f32, 100), clone.data.arrow.end_offset.x);
+    try expectEqual(@as(f32, 50), clone.data.arrow.end_offset.y);
+    try expectEqual(@as(f32, 30), clone.data.arrow.mid_offset.x);
+    try expectEqual(@as(f32, 60), clone.data.arrow.mid_offset.y);
+    try expect(clone.data.arrow.has_midpoint);
+    try expectEqual(@as(f32, 3.0), clone.data.arrow.thickness);
+    try expectEqual(@as(f32, 12.0), clone.data.arrow.arrowhead_size);
+}
+
+test "SceneGraph.cloneElement clones straight arrow without midpoint" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const orig_id = try scene.addArrow(
+        Vec2{ .x = 0, .y = 0 },
+        Vec2{ .x = 80, .y = 40 },
+        2.0,
+        10.0,
+        black,
+        .world,
+    );
+
+    const clone_id = (try scene.cloneElement(orig_id)).?;
+    const clone = scene.findElement(clone_id).?;
+
+    // Should preserve the default (no midpoint) state
+    try expect(!clone.data.arrow.has_midpoint);
+    try expectEqual(@as(f32, 40), clone.data.arrow.mid_offset.x);
+    try expectEqual(@as(f32, 20), clone.data.arrow.mid_offset.y);
+}
+
+test "Arrow bounding box for straight arrow includes arrowhead padding" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const id = try scene.addArrow(
+        Vec2{ .x = 50, .y = 100 },
+        Vec2{ .x = 200, .y = 0 }, // horizontal arrow to the right
+        2.0,
+        12.0, // arrowhead_size = padding
+        black,
+        .world,
+    );
+
+    const elem = scene.findElement(id).?;
+    const bbox = elem.bounding_box;
+
+    // Tail at (50, 100), head at (250, 100), padding = 12
+    // min_x = 50 + min(0, 200) - 12 = 50 - 12 = 38
+    // min_y = 100 + min(0, 0) - 12 = 100 - 12 = 88
+    // max_x = 50 + max(0, 200) + 12 = 262
+    // max_y = 100 + max(0, 0) + 12 = 112
+    try expectEqual(@as(f32, 38), bbox.x);
+    try expectEqual(@as(f32, 88), bbox.y);
+    try expectEqual(@as(f32, 224), bbox.w); // 262 - 38
+    try expectEqual(@as(f32, 24), bbox.h); // 112 - 88
+}
+
+test "Arrow bounding box for bent arrow encompasses curve" {
+    var scene = SceneGraph.init(testing.allocator);
+    defer scene.deinit();
+
+    const black = c.SDL_Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const id = try scene.addArrow(
+        Vec2{ .x = 0, .y = 0 },
+        Vec2{ .x = 100, .y = 0 }, // horizontal arrow
+        2.0,
+        10.0,
+        black,
+        .world,
+    );
+
+    // Set a midpoint that curves upward
+    const elem = scene.findElement(id).?;
+    elem.data.arrow.mid_offset = Vec2{ .x = 50, .y = 50 };
+    elem.data.arrow.has_midpoint = true;
+
+    // Re-trigger bounding box update
+    scene.updateElementBoundingBox(elem, null, null);
+
+    const bbox = elem.bounding_box;
+
+    // Tail=(0,0), mid_world=(50,50), head=(100,0)
+    // Control = 2*(50,50) - 0.5*(0,0) - 0.5*(100,0) = (100,100) - (50,0) = (50,100)
+    // Bézier AABB y extremum at t=0.5: y = 0.25*0 + 0.5*100 + 0.25*0 = 50
+    // So curve reaches y=50, and bbox should include padding=10 around that
+    // min_y should be below 0 (due to padding), max should be above 50 (due to padding)
+    try expect(bbox.y < 0.0); // padding below tail
+    try expect(bbox.y + bbox.h > 50.0); // extends above curve apex
+    // x range should still be ~0..100 + padding
+    try expect(bbox.x < 0.0);
+    try expect(bbox.x + bbox.w > 100.0);
+}

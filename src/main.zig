@@ -289,6 +289,22 @@ pub fn main() !void {
                     // Use Cmd on macOS, Ctrl on other platforms for shortcuts
                     const shortcut_mod = if (platform.use_mac_keybindings) cmd_held else ctrl_held;
 
+                    // Clipboard shortcuts (Ctrl+C/X/V on Windows/Linux, Cmd+C/X/V on macOS)
+                    if (shortcut_mod and scancode == c.SDL_SCANCODE_C) {
+                        _ = action_mgr.handle(.{ .copy_text = {} }, &cam);
+                        continue;
+                    }
+                    if (shortcut_mod and scancode == c.SDL_SCANCODE_X) {
+                        _ = action_mgr.handle(.{ .cut_text = {} }, &cam);
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
+                        continue;
+                    }
+                    if (shortcut_mod and scancode == c.SDL_SCANCODE_V) {
+                        _ = action_mgr.handle(.{ .paste_text = {} }, &cam);
+                        action_mgr.text_edit.blink.restart(c.SDL_GetTicks());
+                        continue;
+                    }
+
                     // Backspace - delete character before cursor
                     if (scancode == c.SDL_SCANCODE_BACKSPACE) {
                         action_mgr.text_edit.buffer.deleteBackward();

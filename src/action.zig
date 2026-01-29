@@ -21,6 +21,9 @@ pub const Action = enum {
     begin_resize_element,
     resize_element,
     end_resize_element,
+    copy_text,
+    cut_text,
+    paste_text,
     // Future actions can be added here without changing input handling code
 };
 
@@ -43,6 +46,9 @@ pub const ActionParams = union(Action) {
     begin_resize_element: ResizeParams,
     resize_element: ResizeParams,
     end_resize_element: void,
+    copy_text: void,
+    cut_text: void,
+    paste_text: void,
 };
 
 pub const PanParams = struct {

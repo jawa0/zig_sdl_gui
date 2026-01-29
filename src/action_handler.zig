@@ -5,6 +5,8 @@ const math = @import("math.zig");
 const color_scheme = @import("color_scheme.zig");
 const tool = @import("tool.zig");
 const text_buffer = @import("text_buffer.zig");
+const sdl = @import("sdl.zig");
+const c = sdl.c;
 
 const Action = action.Action;
 const ActionParams = action.ActionParams;
@@ -450,6 +452,42 @@ pub const ActionHandler = struct {
 
             .end_resize_element => {
                 self.resize.is_resizing = false;
+            },
+
+            .copy_text => {
+                if (self.text_edit.is_editing) {
+                    if (self.text_edit.buffer.getSelectedText()) |selected| {
+                        var buf: [text_buffer.MAX_BUFFER_SIZE + 1]u8 = undefined;
+                        @memcpy(buf[0..selected.len], selected);
+                        buf[selected.len] = 0;
+                        _ = c.SDL_SetClipboardText(@ptrCast(&buf));
+                    }
+                }
+            },
+
+            .cut_text => {
+                if (self.text_edit.is_editing) {
+                    if (self.text_edit.buffer.getSelectedText()) |selected| {
+                        var buf: [text_buffer.MAX_BUFFER_SIZE + 1]u8 = undefined;
+                        @memcpy(buf[0..selected.len], selected);
+                        buf[selected.len] = 0;
+                        _ = c.SDL_SetClipboardText(@ptrCast(&buf));
+                        _ = self.text_edit.buffer.deleteSelection();
+                    }
+                }
+            },
+
+            .paste_text => {
+                if (self.text_edit.is_editing) {
+                    const clipboard_cstr = c.SDL_GetClipboardText();
+                    if (clipboard_cstr) |ptr| {
+                        const text = std.mem.sliceTo(ptr, 0);
+                        if (text.len > 0) {
+                            self.text_edit.buffer.insert(text);
+                        }
+                        c.SDL_free(@ptrCast(ptr));
+                    }
+                }
             },
         }
 
@@ -920,4 +958,130 @@ test "DragSelectState.getBounds with normal drag direction" {
     try testing.expectEqual(@as(f32, 20), bounds.min_y);
     try testing.expectEqual(@as(f32, 100), bounds.max_x);
     try testing.expectEqual(@as(f32, 200), bounds.max_y);
+}
+
+// ArrowEndpointDragState Tests
+
+test "ArrowEndpointDragState default initialization" {
+    const state = ArrowEndpointDragState{};
+
+    try testing.expect(!state.is_active);
+    try testing.expectEqual(@as(u32, 0), state.element_id);
+    try testing.expect(!state.dragging_head);
+    try testing.expect(!state.dragging_midpoint);
+    try testing.expectEqual(@as(f32, 0), state.original_position.x);
+    try testing.expectEqual(@as(f32, 0), state.original_position.y);
+    try testing.expectEqual(@as(f32, 0), state.original_end_offset.x);
+    try testing.expectEqual(@as(f32, 0), state.original_end_offset.y);
+    try testing.expectEqual(@as(f32, 0), state.original_mid_offset.x);
+    try testing.expectEqual(@as(f32, 0), state.original_mid_offset.y);
+}
+
+test "ArrowEndpointDragState for head drag" {
+    const state = ArrowEndpointDragState{
+        .is_active = true,
+        .element_id = 42,
+        .dragging_head = true,
+        .dragging_midpoint = false,
+        .original_position = Vec2{ .x = 10, .y = 20 },
+        .original_end_offset = Vec2{ .x = 100, .y = 50 },
+        .original_mid_offset = Vec2{ .x = 50, .y = 25 },
+    };
+
+    try testing.expect(state.is_active);
+    try testing.expectEqual(@as(u32, 42), state.element_id);
+    try testing.expect(state.dragging_head);
+    try testing.expect(!state.dragging_midpoint);
+    try testing.expectEqual(@as(f32, 100), state.original_end_offset.x);
+    try testing.expectEqual(@as(f32, 50), state.original_mid_offset.x);
+}
+
+test "ArrowEndpointDragState for midpoint drag" {
+    const state = ArrowEndpointDragState{
+        .is_active = true,
+        .element_id = 7,
+        .dragging_head = false,
+        .dragging_midpoint = true,
+        .original_position = Vec2{ .x = 0, .y = 0 },
+        .original_end_offset = Vec2{ .x = 200, .y = 80 },
+        .original_mid_offset = Vec2{ .x = 60, .y = 90 },
+    };
+
+    try testing.expect(state.is_active);
+    try testing.expect(!state.dragging_head);
+    try testing.expect(state.dragging_midpoint);
+    try testing.expectEqual(@as(f32, 60), state.original_mid_offset.x);
+    try testing.expectEqual(@as(f32, 90), state.original_mid_offset.y);
+}
+
+// ElementResizeState arrow midpoint fields
+
+test "ElementResizeState default has zero midpoint fields" {
+    const state = ElementResizeState{};
+
+    try testing.expectEqual(@as(f32, 0), state.start_mid_offset_x);
+    try testing.expectEqual(@as(f32, 0), state.start_mid_offset_y);
+    try testing.expect(!state.start_has_midpoint);
+}
+
+test "ElementResizeState for arrow element with midpoint" {
+    const state = ElementResizeState{
+        .element_id = 5,
+        .start_pos = Vec2{ .x = 10, .y = 20 },
+        .start_bbox_x = -2,
+        .start_bbox_y = -12,
+        .start_bbox_w = 214,
+        .start_bbox_h = 74,
+        .start_rect_width = 200,
+        .start_rect_height = 50,
+        .start_mid_offset_x = 60,
+        .start_mid_offset_y = 80,
+        .start_has_midpoint = true,
+    };
+
+    try testing.expectEqual(@as(u32, 5), state.element_id);
+    try testing.expectEqual(@as(f32, 200), state.start_rect_width);
+    try testing.expectEqual(@as(f32, 50), state.start_rect_height);
+    try testing.expectEqual(@as(f32, 60), state.start_mid_offset_x);
+    try testing.expectEqual(@as(f32, 80), state.start_mid_offset_y);
+    try testing.expect(state.start_has_midpoint);
+}
+
+test "ElementResizeState for straight arrow without midpoint" {
+    const state = ElementResizeState{
+        .element_id = 3,
+        .start_pos = Vec2{ .x = 0, .y = 0 },
+        .start_bbox_x = -12,
+        .start_bbox_y = -12,
+        .start_bbox_w = 124,
+        .start_bbox_h = 74,
+        .start_rect_width = 100,
+        .start_rect_height = 50,
+        // midpoint fields left at defaults
+    };
+
+    try testing.expectEqual(@as(f32, 0), state.start_mid_offset_x);
+    try testing.expectEqual(@as(f32, 0), state.start_mid_offset_y);
+    try testing.expect(!state.start_has_midpoint);
+}
+
+// Clipboard Action Tests
+
+test "Clipboard action variants can be constructed" {
+    // Verify the clipboard action enum variants exist
+    try testing.expectEqual(Action.copy_text, Action.copy_text);
+    try testing.expectEqual(Action.cut_text, Action.cut_text);
+    try testing.expectEqual(Action.paste_text, Action.paste_text);
+}
+
+test "Clipboard ActionParams can be constructed as void" {
+    // Verify clipboard actions can be constructed with void payloads
+    const copy_params = ActionParams{ .copy_text = {} };
+    const cut_params = ActionParams{ .cut_text = {} };
+    const paste_params = ActionParams{ .paste_text = {} };
+
+    // Verify they resolve to the correct active tag
+    try testing.expectEqual(action.Action.copy_text, copy_params);
+    try testing.expectEqual(action.Action.cut_text, cut_params);
+    try testing.expectEqual(action.Action.paste_text, paste_params);
 }

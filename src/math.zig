@@ -450,3 +450,152 @@ test "Mat2x3.multiply scale" {
     try expectEqual(15.0, result.m[3]);
 }
 
+// Bézier Tests
+
+test "bezierQuadratic at endpoints" {
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 100 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+
+    // t=0 should return p0
+    const at0 = bezierQuadratic(p0, control, p2, 0.0);
+    try expectApproxEqAbs(0.0, at0.x, 0.001);
+    try expectApproxEqAbs(0.0, at0.y, 0.001);
+
+    // t=1 should return p2
+    const at1 = bezierQuadratic(p0, control, p2, 1.0);
+    try expectApproxEqAbs(100.0, at1.x, 0.001);
+    try expectApproxEqAbs(0.0, at1.y, 0.001);
+}
+
+test "bezierQuadratic at midpoint" {
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 100 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+
+    // t=0.5: B = 0.25*p0 + 0.5*control + 0.25*p2
+    // x = 0.25*0 + 0.5*50 + 0.25*100 = 50
+    // y = 0.25*0 + 0.5*100 + 0.25*0 = 50
+    const at_half = bezierQuadratic(p0, control, p2, 0.5);
+    try expectApproxEqAbs(50.0, at_half.x, 0.001);
+    try expectApproxEqAbs(50.0, at_half.y, 0.001);
+}
+
+test "bezierQuadratic straight line" {
+    // Control point on the line between p0 and p2 → straight line
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 50 };
+    const p2 = Vec2{ .x = 100, .y = 100 };
+
+    const at_quarter = bezierQuadratic(p0, control, p2, 0.25);
+    try expectApproxEqAbs(25.0, at_quarter.x, 0.001);
+    try expectApproxEqAbs(25.0, at_quarter.y, 0.001);
+}
+
+test "bezierQuadraticTangent at endpoints" {
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 100 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+
+    // t=0: tangent = 2*(control - p0) = 2*(50,100) = (100, 200)
+    const t0 = bezierQuadraticTangent(p0, control, p2, 0.0);
+    try expectApproxEqAbs(100.0, t0.x, 0.001);
+    try expectApproxEqAbs(200.0, t0.y, 0.001);
+
+    // t=1: tangent = 2*(p2 - control) = 2*(50,-100) = (100, -200)
+    const t1 = bezierQuadraticTangent(p0, control, p2, 1.0);
+    try expectApproxEqAbs(100.0, t1.x, 0.001);
+    try expectApproxEqAbs(-200.0, t1.y, 0.001);
+}
+
+test "bezierQuadraticTangent at midpoint is horizontal for symmetric curve" {
+    // Symmetric arch: tangent at t=0.5 should point purely in x direction
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 100 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+
+    // t=0.5: tangent = 2*0.5*(control - p0) + 2*0.5*(p2 - control) = (p2 - p0) = (100, 0)
+    const t_mid = bezierQuadraticTangent(p0, control, p2, 0.5);
+    try expectApproxEqAbs(100.0, t_mid.x, 0.001);
+    try expectApproxEqAbs(0.0, t_mid.y, 0.001);
+}
+
+test "bezierControlFromMidpoint curve passes through midpoint" {
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+    const desired_mid = Vec2{ .x = 50, .y = 75 };
+
+    const control = bezierControlFromMidpoint(p0, desired_mid, p2);
+
+    // Evaluate the curve at t=0.5 — it should pass through desired_mid
+    const actual_mid = bezierQuadratic(p0, control, p2, 0.5);
+    try expectApproxEqAbs(desired_mid.x, actual_mid.x, 0.001);
+    try expectApproxEqAbs(desired_mid.y, actual_mid.y, 0.001);
+}
+
+test "bezierControlFromMidpoint centered midpoint gives collinear control" {
+    // If mid is the natural midpoint of p0–p2, the control should lie on the line
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const p2 = Vec2{ .x = 100, .y = 60 };
+    const mid = Vec2{ .x = 50, .y = 30 }; // exact center
+
+    const control = bezierControlFromMidpoint(p0, mid, p2);
+
+    // C = 2*mid - 0.5*p0 - 0.5*p2 = (100,60) - (0,0) - (50,30) = (50, 30)
+    // Control is at the midpoint itself — curve is a straight line
+    try expectApproxEqAbs(50.0, control.x, 0.001);
+    try expectApproxEqAbs(30.0, control.y, 0.001);
+}
+
+test "bezierQuadraticAABB straight line" {
+    // Control on the line — AABB should just be the bounding box of endpoints
+    const p0 = Vec2{ .x = 10, .y = 20 };
+    const control = Vec2{ .x = 55, .y = 60 };
+    const p2 = Vec2{ .x = 100, .y = 100 };
+
+    const aabb = bezierQuadraticAABB(p0, control, p2);
+    try expectApproxEqAbs(10.0, aabb.min_x, 0.001);
+    try expectApproxEqAbs(20.0, aabb.min_y, 0.001);
+    try expectApproxEqAbs(100.0, aabb.max_x, 0.001);
+    try expectApproxEqAbs(100.0, aabb.max_y, 0.001);
+}
+
+test "bezierQuadraticAABB curved extends beyond endpoints" {
+    // Arch curve: control point above both endpoints extends y beyond them
+    const p0 = Vec2{ .x = 0, .y = 0 };
+    const control = Vec2{ .x = 50, .y = 100 };
+    const p2 = Vec2{ .x = 100, .y = 0 };
+
+    const aabb = bezierQuadraticAABB(p0, control, p2);
+
+    // x range should be 0..100 (endpoints)
+    try expectApproxEqAbs(0.0, aabb.min_x, 0.001);
+    try expectApproxEqAbs(100.0, aabb.max_x, 0.001);
+
+    // y range: min is 0 (endpoints), max should be at the curve apex
+    // Extremum in y: t = (p0.y - control.y) / (p0.y - 2*control.y + p2.y)
+    //              = (0 - 100) / (0 - 200 + 0) = -100 / -200 = 0.5
+    // y at t=0.5 = 0.25*0 + 0.5*100 + 0.25*0 = 50
+    try expectApproxEqAbs(0.0, aabb.min_y, 0.001);
+    try expectApproxEqAbs(50.0, aabb.max_y, 0.001);
+}
+
+test "bezierQuadraticAABB includes endpoints" {
+    // Asymmetric curve where one endpoint is the extremum
+    const p0 = Vec2{ .x = 0, .y = 50 };
+    const control = Vec2{ .x = 50, .y = 0 };
+    const p2 = Vec2{ .x = 100, .y = 50 };
+
+    const aabb = bezierQuadraticAABB(p0, control, p2);
+
+    // x range: endpoints at 0 and 100
+    try expectApproxEqAbs(0.0, aabb.min_x, 0.001);
+    try expectApproxEqAbs(100.0, aabb.max_x, 0.001);
+
+    // y range: min should be at curve bottom (below endpoints)
+    // t_y = (50 - 0) / (50 - 0 + 50) = 50/100 = 0.5
+    // y at t=0.5 = 0.25*50 + 0.5*0 + 0.25*50 = 25
+    try expectApproxEqAbs(25.0, aabb.min_y, 0.001);
+    try expectApproxEqAbs(50.0, aabb.max_y, 0.001);
+}
+
